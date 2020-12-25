@@ -1,9 +1,9 @@
 all:
 	rm -rf  *Mnesia erl_cra*;
 	rm -rf  *~ */*~;
-	rm -rf ebin/* test_ebin/* *.beam test_src/*.beam;
+	rm -rf ebin test_ebin/* *.beam test_src/*.beam;
 	rm -rf cluster* server common dbase;
-#       iaas
+	mkdir ebin;
 	cp src/*.app ebin;
 	erlc -o ebin src/*.erl
 doc_gen:
