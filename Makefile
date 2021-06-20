@@ -1,24 +1,32 @@
 all:
-	rm -rf  *Mnesia erl_cra*;
-	rm -rf  *~ */*~;
-	rm -rf ebin test_ebin/* *.beam test_src/*.beam;
-	rm -rf cluster* server common dbase;
-	mkdir ebin;
-	cp src/*.app ebin;
-	erlc -o ebin src/*.erl
-doc_gen:
-	rm -rf  node_config logfiles doc/*;
-	erlc ../doc_gen.erl;
-	erl -s doc_gen start -sname doc
-test:
-	rm -rf  *Mnesia erl_cra*;
-	rm -rf  *~ */*~;
-	rm -rf ebin/* test_ebin/* *.beam test_src/*.beam;
-	rm -rf cluster* server common dbase;
-	erlc -o test_ebin test_src/*.erl;
-#       iaas
-	cp src/*.app ebin;
+#	service
+	rm -f ebin/*;
 	erlc -o ebin src/*.erl;
-	erl -pa test_ebin\
-	    -pa ebin\
-	    -s iaas_tests start -sname server -setcookie abc
+	rm -rf src/*.beam *.beam  test_src/*.beam test_ebin;
+	rm -rf  *~ */*~  erl_cra*;
+	rm -rf *_specs *_config *.log;
+	rm -rf support etcd catalog cluster_config host_config;
+	echo Done
+doc_gen:
+	echo glurk not implemented
+unit_test:
+	rm -rf ebin/* src/*.beam *.beam test_src/*.beam test_ebin;
+	rm -rf  *~ */*~  erl_cra*;
+	rm -rf *_specs *_config *.log;
+#	support
+	rm -rf support;
+	git clone https://github.com/joq62/support.git;
+#	etcd
+	rm -rf etcd;
+#	git clone https://github.com/joq62/etcd.git;
+#	iaas
+#	cp src/iaas.app ebin;
+	erlc -o ebin src/*.erl;
+#	test application
+	mkdir test_ebin;
+	cp test_src/*.app test_ebin;
+	erlc -o test_ebin test_src/*.erl;
+	erl -pa ebin -pa test_ebin -pa support/ebin\
+	    -setcookie abc\
+	    -sname test_iaas\
+	    -run unit_test start_test test_src/test.config

@@ -2,28 +2,20 @@
 %%% Author  : uabjle
 %%% Description : dbase using dets 
 %%% 
-%%% Create1d : 10 dec 2012
+%%% Created : 10 dec 2012
 %%% -------------------------------------------------------------------
--module(machine_test). 
-    
+-module(app_start_test).    
+   
 %% --------------------------------------------------------------------
 %% Include files
-
+%% --------------------------------------------------------------------
 -include_lib("eunit/include/eunit.hrl").
 %% --------------------------------------------------------------------
-
-%% --------------------------------------------------------------------
-%% Definitions
--define(ClusterConfigDir,"cluster_config").
--define(ClusterConfigFileName,"cluster_info.hrl").
--define(GitUser,"joq62").
--define(GitPassWd,"20Qazxsw20").
-%% --------------------------------------------------------------------
-
-
-%% --------------------------------------------------------------------
+-define(APP,iaas).
 %% External exports
 -export([start/0]).
+
+
 
 %% ====================================================================
 %% External functions
@@ -39,16 +31,17 @@ start()->
     ?assertEqual(ok,setup()),
     ?debugMsg("stop setup"),
 
-    ?debugMsg("Start status"),
-    ?assertEqual(ok,status()),
-    ?debugMsg("stop status"),
-
+ %   ?debugMsg("Start testXXX"),
+ %   ?assertEqual(ok,single_node()),
+ %   ?debugMsg("stop single_node"),
+    
+      %% End application tests
+    ?debugMsg("Start cleanup"),
     ?assertEqual(ok,cleanup()),
+    ?debugMsg("Stop cleanup"),
 
     ?debugMsg("------>"++atom_to_list(?MODULE)++" ENDED SUCCESSFUL ---------"),
     ok.
-
-
 
 
 %% --------------------------------------------------------------------
@@ -59,29 +52,35 @@ start()->
 
 setup()->
 
+    %% Test env vars 
+   
+%    io:format("Line = ~p~n",[{?MODULE,?LINE}]),
+    
+    % Start a Service application 
+   % rpc:call(node(),application,stop,[?APP],2*5000),
+   % timer:sleep(3000),    
+  %  ok=rpc:call(node(),application,start,[?APP],2*5000),
+  %  ?assertMatch({pong,_,?APP},
+%		 rpc:call(node(),?APP,ping,[],2*5000)),		 
+
+    {ok,_}=?APP:start(),
+
     ok.
+
+
 
 %% --------------------------------------------------------------------
 %% Function:start/0 
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
-%% --------------------------------------------------------------------
-status()->
-    ?assertMatch([{running,[_,_,_]},
-		  {not_available,[]}],
-		 machine:status(all)),
-    ?assertEqual([running],
-		 machine:status("c2")),
-    ?assertEqual([running],
-		 machine:status("c0")),
-    
-    ok.
-%% --------------------------------------------------------------------
-%% Function:start/0 
-%% Description: Initiate the eunit tests, set upp needed processes etc
-%% Returns: non
-%% -------------------------------------------------------------------
+%% -------------------------------------------------------------------    
 
 cleanup()->
-
+  
+  %  init:stop(),
     ok.
+%% --------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% --------------------------------------------------------------------

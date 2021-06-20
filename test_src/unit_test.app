@@ -1,13 +1,12 @@
 %% This is the application resource file (.app file) for the 'base'
 %% application.
-{application, iaas,
-[{description, "iaas" },
+{application, unit_test,
+[{description, "unit_test  " },
 {vsn, "1.0.0" },
 {modules, 
-	  [iaas_app,iaas_sup,iaas,
-		iaas_lib]},
-{registered,[iaas]},
+	  [unit_test_app,unit_test_sup,unit_test]},
+{registered,[unit_test]},
 {applications, [kernel,stdlib]},
-{mod, {iaas_app,[]}},
+{mod, {unit_test_app,[]}},
 {start_phases, []}
 ]}.

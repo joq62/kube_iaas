@@ -1,13 +1,11 @@
 %%% -------------------------------------------------------------------
 %%% @author  : Joq Erlang
 %%% @doc: : 
-%%% Manage Computers
-%%% 
 %%% Created : 
 %%% -------------------------------------------------------------------
--module(iaas). 
- 
+-module(host_controller).  
 -behaviour(gen_server).
+
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
@@ -18,37 +16,38 @@
 %% Key Data structures
 %% 
 %% --------------------------------------------------------------------
--record(state, {running_hosts,not_available_hosts,
-		running_clusters,not_available_clusters}).
+-record(state, {running_hosts,missing_hosts}).
 
 
 
 %% --------------------------------------------------------------------
 %% Definitions 
--define(HbInterval,60*1000).
+%% --------------------------------------------------------------------
 
+%% --------------------------------------------------------------------
+%% Function: available_hosts()
+%% Description: Based on hosts.config file checks which hosts are avaible
+%% Returns: List({HostId,Ip,SshPort,Uid,Pwd}
 %% --------------------------------------------------------------------
 
 
+
+
+
+% OaM related
 -export([
-	 status_all_hosts/0,
 	 running_hosts/0,
-	 not_available_hosts/0,
-	 status_host/1
+	 missing_hosts/0,
+	 status_hosts/0,
+
+	 start_node_on_host/2,
+	 stop_node/1
 	]).
 
--export([
-	 create_cluster/1,
-	 status_all_clusters/0,
-	 running_clusters/0,
-	 not_available_clusters/0,
-	 status_cluster/1
-	]).
 
 -export([start/0,
 	 stop/0,
-	 ping/0,
-	 heart_beat/1
+	 ping/0
 	]).
 
 %% gen_server callbacks
@@ -59,6 +58,7 @@
 %% External functions
 %% ====================================================================
 
+%% Asynchrounus Signals
 
 %% Gen server functions
 
@@ -66,36 +66,26 @@ start()-> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 stop()-> gen_server:call(?MODULE, {stop},infinity).
 
 
+%%---------------------------------------------------------------
+create(NumMasters,Hosts,Name,Cookie)->
+    gen_server:call(?MODULE, {create,NumMasters,Hosts,Name,Cookie},infinity).
+delete(Name)->
+    gen_server:call(?MODULE, {delete,Name},infinity).    
+
+%%---------------------------------------------------------------
+running_hosts()->
+       gen_server:call(?MODULE, {running_hosts},infinity).
+missing_hosts()->
+       gen_server:call(?MODULE, {missing_hosts},infinity).
+
+status_hosts()-> 
+    gen_server:call(?MODULE, {status_hosts},infinity).
 ping()-> 
     gen_server:call(?MODULE, {ping},infinity).
 
 %%-----------------------------------------------------------------------
-status_all_hosts()->
-    gen_server:call(?MODULE, {status_all_hosts},infinity).
-running_hosts()->
-    gen_server:call(?MODULE, {running_hosts},infinity).
-not_available_hosts()->
-    gen_server:call(?MODULE, {not_available_hosts},infinity).
-status_host(HostId)->
-    gen_server:call(?MODULE, {status_host,HostId},infinity).
-
-%%-----------------------------------------------------------------------
-create_cluster(ClusterId)->
-    gen_server:call(?MODULE, {create_cluster,ClusterId},infinity).
-
-status_all_clusters()->
-    gen_server:call(?MODULE, {status_all_clusters},infinity).
-running_clusters()->
-    gen_server:call(?MODULE, {running_clusters},infinity).
-not_available_clusters()->
-    gen_server:call(?MODULE, {not_available_clusters},infinity).
-status_cluster(ClusterId)->
-    gen_server:call(?MODULE, {status_cluster,ClusterId},infinity).
 
 %%----------------------------------------------------------------------
-
-heart_beat(Interval)->
-    gen_server:cast(?MODULE, {heart_beat,Interval}).
 
 
 %% ====================================================================
@@ -103,7 +93,7 @@ heart_beat(Interval)->
 %% ====================================================================
 
 %% --------------------------------------------------------------------
-%% Function: init/1
+%% Function: 
 %% Description: Initiates the server
 %% Returns: {ok, State}          |
 %%          {ok, State, Timeout} |
@@ -111,23 +101,10 @@ heart_beat(Interval)->
 %%          {stop, Reason}
 %
 %% --------------------------------------------------------------------
-
-% To be removed
-
 init([]) ->
     ssh:start(),
-    case rpc:call(node(),host,status_all_hosts,[],15*1000) of
-	{ok,RH,NAH}->
-	    RunningHosts=RH,
-	    NotAvailableHosts=NAH;
-	_Err->
-	    RunningHosts=[],
-	    NotAvailableHosts=[]
-    end,
-    
-    
-    {ok, #state{running_hosts=RunningHosts,
-		not_available_hosts=NotAvailableHosts}}.
+%    [{running,R},{missing,M}]=host_lib:status_hosts(),
+    {ok, #state{running_hosts=[],missing_hosts=[]}}.
     
 %% --------------------------------------------------------------------
 %% Function: handle_call/3
@@ -140,58 +117,21 @@ init([]) ->
 %%          {stop, Reason, State}            (aterminate/2 is called)
 %% --------------------------------------------------------------------
 
-%%-------- Hosts
-handle_call({status_all_hosts},_From,State) ->
-    Reply={State#state.running_hosts,State#state.not_available_hosts},
-    {reply, Reply, State};
-
 handle_call({running_hosts},_From,State) ->
     Reply=State#state.running_hosts,
     {reply, Reply, State};
-
-handle_call({not_available_hosts},_From,State) ->
-    Reply=State#state.not_available_hosts,
+handle_call({missing_hosts},_From,State) ->
+    Reply=State#state.missing_hosts,
     {reply, Reply, State};
-
-handle_call({status_host,HostId},_From,State) ->
-    AllHosts=lists:append(State#state.running_hosts,State#state.not_available_hosts),
-    Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllHosts,
-			       HostId==XHostId],
-    {reply, Reply, State};
-
-%%------- Clusters
-
-handle_call({create_cluster,ClusterId},_From,State) ->
-    Reply=rpc:call(node(),cluster,create,[ClusterId],25*1000),
-    {reply, Reply, State};
-
-handle_call({status_all_clusters},_From,State) ->
-    Reply={State#state.running_clusters,State#state.not_available_clusters},
-    {reply, Reply, State};
-
-handle_call({running_clusters},_From,State) ->
-    Reply=State#state.running_clusters,
-    {reply, Reply, State};
-
-handle_call({not_available_clusters},_From,State) ->
-    Reply=State#state.not_available_clusters,
-    {reply, Reply, State};
-
-handle_call({status_cluster,_ClusterId},_From,State) ->
-%    AllClusters=lists:append(State#state.running_clusters,State#state.not_available_clusters),
-%    Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllClusters,
-	%		       HostId==XHostId],
-    Reply=glurk,
-    {reply, Reply, State};
-
-%%------ Standard
+   
+handle_call({status_hosts},_From,State) ->
+    [{running,R},{missing,M}]=host_lib:status_hosts(),
+    Reply=[{running,R},{missing,M}],
+    NewState=State#state{running_hosts=R,missing_hosts=M},
+    {reply, Reply, NewState};
 
 handle_call({stop}, _From, State) ->
     {stop, normal, shutdown_ok, State};
-
-handle_call({ping},_From,State) ->
-    Reply={pong,node(),?MODULE},
-    {reply, Reply, State};
 
 handle_call(Request, From, State) ->
     Reply = {unmatched_signal,?MODULE,Request,From},
@@ -204,10 +144,7 @@ handle_call(Request, From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% -------------------------------------------------------------------
-handle_cast({heart_beat,Interval}, State) ->
-    spawn(fun()->h_beat(Interval) end),    
-    {noreply, State};
-			     
+    
 handle_cast(Msg, State) ->
     io:format("unmatched match cast ~p~n",[{?MODULE,?LINE,Msg}]),
     {noreply, State}.
@@ -249,25 +186,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
-h_beat(Interval)->
- %   timer:sleep(Interval),
-%    io:format(" *************** "),
-%    io:format(" ~p",[{time(),?MODULE}]),
-%    io:format(" *************** ~n"),
 
-    % Update computer status
-    case rpc:call(node(),machine,status,[all],19*1000) of
-	{badrpc,Reason}->
-	    % log as a ticket
-	    io:format("Log ticket ~p~n",[{badrpc,Reason,?MODULE,?LINE}]),
-	    ok;
-	Status->
-%	    io:format("Status ~p~n",[{Status,?MODULE,?LINE}]),
-	    rpc:call(node(),machine,update_status,[Status],5*1000)    
-    end,
-    timer:sleep(Interval),
-    rpc:cast(node(),?MODULE,heart_beat,[Interval]).
- 
 %% --------------------------------------------------------------------
 %% Internal functions
 %% --------------------------------------------------------------------

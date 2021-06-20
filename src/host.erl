@@ -4,11 +4,13 @@
 %%%  
 %%% Created : 10 dec 2012
 %%% -------------------------------------------------------------------
--module(machine).  
+-module(host).   
 
 
 
--export([status/1,
+-export([
+	 status_all_hosts/0,
+	 status/1,
 	 update_status/1,
 	 read_status/1
 	]).
@@ -16,6 +18,37 @@
 %% ====================================================================
 %% External functions
 %% ============================ ========================================
+status_all_hosts()->
+    F1=fun get_hostname/2,
+    F2=fun check_host_status/3,
+    
+    AllHosts=db_host_info:read_all(),
+  %  io:format("AllHosts = ~p~n",[{?MODULE,?LINE,AllHosts}]),
+    Status=mapreduce:start(F1,F2,[],AllHosts),
+  %  io:format("Status = ~p~n",[{?MODULE,?LINE,Status}]),
+    Running=[{running,HostId,Ip,Port}||{running,HostId,Ip,Port}<-Status],
+    NotAvailable=[{not_available,HostId,Ip,Port}||{not_available,HostId,Ip,Port}<-Status],
+    {ok,Running,NotAvailable}.
+
+get_hostname(Parent,{HostId,IpAddr,Port,User,PassWd})->    
+  %  io:format("get_hostname= ~p~n",[{?MODULE,?LINE,HostId,User,PassWd,IpAddr,Port}]),
+    Msg="hostname",
+    Result=my_ssh:ssh_send(IpAddr,Port,User,PassWd,Msg, 5*1000),
+  %  io:format("Result, HostId= ~p~n",[{?MODULE,?LINE,Result,HostId}]),
+    Parent!{machine_status,{HostId,IpAddr,Port,Result}}.
+
+check_host_status(machine_status,Vals,_)->
+    check_host_status(Vals,[]).
+
+check_host_status([],Status)->
+    Status;
+check_host_status([{HostId,IpAddr,Port,[HostId]}|T],Acc)->
+    NewAcc=[{running,HostId,IpAddr,Port}|Acc],
+    check_host_status(T,NewAcc);
+check_host_status([{HostId,IpAddr,Port,{error,_Err}}|T],Acc) ->
+    check_host_status(T,[{not_available,HostId,IpAddr,Port}|Acc]);
+check_host_status([X|T],Acc) ->
+    check_host_status(T,[{x,X}|Acc]).
 
 %% -------------------------------------------------------------------
 %% Function:start/0 
@@ -80,25 +113,7 @@ status()->
 %% Returns: non
 %% --------------------------------------------------------------------
 
-get_hostname(Parent,{HostId,User,PassWd,IpAddr,Port,_Status})->    
-  %  io:format("get_hostname= ~p~n",[{?MODULE,?LINE,HostId,User,PassWd,IpAddr,Port}]),
-    Msg="hostname",
-    Result=my_ssh:ssh_send(IpAddr,Port,User,PassWd,Msg, 5*1000),
-  %  io:format("Result, HostId= ~p~n",[{?MODULE,?LINE,Result,HostId}]),
-    Parent!{machine_status,{HostId,Result}}.
 
-check_host_status(machine_status,Vals,_)->
-    check_host_status(Vals,[]).
-
-check_host_status([],Status)->
-    Status;
-check_host_status([{HostId,[HostId]}|T],Acc)->
-    NewAcc=[{running,HostId}|Acc],
-    check_host_status(T,NewAcc);
-check_host_status([{HostId,{error,_Err}}|T],Acc) ->
-    check_host_status(T,[{not_available,HostId}|Acc]);
-check_host_status([X|T],Acc) ->
-    check_host_status(T,[{x,X}|Acc]).
 
     
 
