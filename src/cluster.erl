@@ -123,12 +123,13 @@ start_node(Pid,[{HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
 %% Returns: non
 %% --------------------------------------------------------------------
 check_node(check_node,Vals,[])->
-    io:format("Vals ~p~n",[{?MODULE,?LINE,Vals}]),
+  %  io:format("Vals ~p~n",[{?MODULE,?LINE,Vals}]),
      check_node(Vals,[]).
 
 check_node([],Result)->
     Result;
 check_node([{Result,Node,HostId,Ip,SshPort}|T],Acc)->
+    io:format(" ~p~n",[{Result,HostId,Ip}]),
     NewAcc=case Result of
 	       ok->
 		   case node_started(Node) of
