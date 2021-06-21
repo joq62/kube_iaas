@@ -18,26 +18,35 @@
 
 %% --------------------------------------------------------------------
 -export([create/1,
-	 wanted_state/0
+	 wanted_state/1,
+	 is_wanted_state/1
 	]).
 
 
 %% ====================================================================
 %% External functions
 %% ====================================================================
-wanted_state()->
-    spawn(fun()->get_wanted_state() end),
-    ok.
 
-get_wanted_state()->
-    WantedClusterIds=iaas:wanted_clusters(),
-    RunningClusters=iaas:running_clusters(),
-    CheckedRunningClusters=check_running_cluster(RunningClusters,[]),
-    ClusterToCreate=[ClusterId||ClusterId<-WantedClusterIds,
-				false==lists:keymember(ClusterId,1,CheckedRunningClusters)],
+is_wanted_state(RunningClusters)->
+    case cluster_to_create(RunningClusters) of
+	[]->
+	    true;
+	_ ->
+	    false
+    end.
+						       
+	    
+wanted_state(RunningClusters)->
+    ClusterToCreate=cluster_to_create(RunningClusters),
     [spawn(iaas,create_cluster,[ClusterId])||ClusterId<-ClusterToCreate],
     ok.
 
+cluster_to_create(RunningClusters)->
+    WantedClusterIds=[ClusterId||{ClusterId,_KubeletNode,_NumWorkers,_WorkerNodes,_Cookie,_Glurk}<-db_cluster_info:read_all()],
+    CheckedRunningClusters=check_running_cluster(RunningClusters,[]),
+    ClusterToCreate=[ClusterId||ClusterId<-WantedClusterIds,
+				false==lists:keymember(ClusterId,1,CheckedRunningClusters)],
+    ClusterToCreate.
 
 check_running_cluster([],RunningClusters)->
     RunningClusters;

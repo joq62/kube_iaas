@@ -49,7 +49,9 @@
 -export([start/0,
 	 stop/0,
 	 ping/0,
-	 wanted_state/1
+	 wanted_state/2,
+	 wanted_state/1,
+	 is_wanted_state/0
 	]).
 
 %% gen_server callbacks
@@ -94,11 +96,13 @@ not_available_clusters()->
     gen_server:call(?MODULE, {not_available_clusters},infinity).
 status_cluster(ClusterId)->
     gen_server:call(?MODULE, {status_cluster,ClusterId},infinity).
+is_wanted_state()->
+    gen_server:call(?MODULE, {is_wanted_state},infinity).
 
 %%----------------------------------------------------------------------
 
-heart_beat(Interval)->
-    gen_server:cast(?MODULE, {heart_beat,Interval}).
+wanted_state(Interval)->
+    gen_server:cast(?MODULE, {wanted_state,Interval}).
 
 
 %% ====================================================================
@@ -127,7 +131,7 @@ init([]) ->
 	    RunningHosts=[],
 	    NotAvailableHosts=[]
     end,
-    spawn(fun()->wanted_state(?WantedStateInterval) end),
+    spawn(fun()->wanted_state(?WantedStateInterval,[]) end),
     {ok, #state{running_hosts=RunningHosts,
 		not_available_hosts=NotAvailableHosts,
 		running_clusters=[],
@@ -164,6 +168,10 @@ handle_call({status_host,HostId},_From,State) ->
     {reply, Reply, State};
 
 %%------- Clusters
+handle_call({is_wanted_state},_From,State) ->
+    Reply=rpc:call(node(),cluster,is_wanted_state,[State#state.running_clusters]),
+    {reply, Reply, State};
+
 handle_call({wanted_clusters},_From,State) ->
     
     Reply=[ClusterId||{ClusterId,_KubeletNode,_NumWorkers,_WorkerNodes,_Cookie,_Glurk}<-db_cluster_info:read_all()],
@@ -222,7 +230,7 @@ handle_call(Request, From, State) ->
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% -------------------------------------------------------------------
 handle_cast({wanted_state,Interval}, State) ->
-    spawn(fun()->wanted_state(Interval) end),    
+    spawn(fun()->wanted_state(Interval,State#state.running_clusters) end),    
     {noreply, State};
 			     
 handle_cast(Msg, State) ->
@@ -266,9 +274,9 @@ code_change(_OldVsn, State, _Extra) ->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
-wanted_state(Interval)->
+wanted_state(Interval,RunningClusters)->
     timer:sleep(2000),
-    cluster:wanted_state(),
+    cluster:wanted_state(RunningClusters),
     timer:sleep(Interval),
     rpc:cast(node(),?MODULE,wanted_state,[Interval]).
  
