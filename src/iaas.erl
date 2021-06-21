@@ -25,7 +25,7 @@
 
 %% --------------------------------------------------------------------
 %% Definitions 
--define(HbInterval,60*1000).
+-define(WantedStateInterval,60*1000).
 
 %% --------------------------------------------------------------------
 
@@ -38,6 +38,7 @@
 	]).
 
 -export([
+	 wanted_clusters/0,
 	 create_cluster/1,
 	 status_all_clusters/0,
 	 running_clusters/0,
@@ -48,7 +49,7 @@
 -export([start/0,
 	 stop/0,
 	 ping/0,
-	 heart_beat/1
+	 wanted_state/1
 	]).
 
 %% gen_server callbacks
@@ -80,6 +81,8 @@ status_host(HostId)->
     gen_server:call(?MODULE, {status_host,HostId},infinity).
 
 %%-----------------------------------------------------------------------
+wanted_clusters()->
+    gen_server:call(?MODULE, {wanted_clusters},infinity).
 create_cluster(ClusterId)->
     gen_server:call(?MODULE, {create_cluster,ClusterId},infinity).
 
@@ -124,10 +127,11 @@ init([]) ->
 	    RunningHosts=[],
 	    NotAvailableHosts=[]
     end,
-    
-    
+    spawn(fun()->wanted_state(?WantedStateInterval) end),
     {ok, #state{running_hosts=RunningHosts,
-		not_available_hosts=NotAvailableHosts}}.
+		not_available_hosts=NotAvailableHosts,
+		running_clusters=[],
+		not_available_clusters=[]}}.
     
 %% --------------------------------------------------------------------
 %% Function: handle_call/3
@@ -160,13 +164,26 @@ handle_call({status_host,HostId},_From,State) ->
     {reply, Reply, State};
 
 %%------- Clusters
-
-handle_call({create_cluster,ClusterId},_From,State) ->
-    Reply=rpc:call(node(),cluster,create,[ClusterId],25*1000),
+handle_call({wanted_clusters},_From,State) ->
+    
+    Reply=[ClusterId||{ClusterId,_KubeletNode,_NumWorkers,_WorkerNodes,_Cookie,_Glurk}<-db_cluster_info:read_all()],
     {reply, Reply, State};
 
+
+handle_call({create_cluster,ClusterId},_From,State) ->
+    Reply = case rpc:call(node(),cluster,create,[ClusterId],25*1000) of
+		{ok,ClusterId,RunningKubeletNodes}->
+		    RunningClusters=[{ClusterId,RunningKubeletNodes}|lists:keydelete(ClusterId,1,State#state.running_clusters)],
+		    NewState=State#state{running_clusters=RunningClusters},
+		    ok;
+		Err->
+		    NewState=State,
+		    {error,[Err]}
+	    end,
+    {reply, Reply, NewState};
+
 handle_call({status_all_clusters},_From,State) ->
-    Reply={State#state.running_clusters,State#state.not_available_clusters},
+    Reply={{running_clusters,State#state.running_clusters},{not_available_clusters,State#state.not_available_clusters}},
     {reply, Reply, State};
 
 handle_call({running_clusters},_From,State) ->
@@ -204,8 +221,8 @@ handle_call(Request, From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% -------------------------------------------------------------------
-handle_cast({heart_beat,Interval}, State) ->
-    spawn(fun()->h_beat(Interval) end),    
+handle_cast({wanted_state,Interval}, State) ->
+    spawn(fun()->wanted_state(Interval) end),    
     {noreply, State};
 			     
 handle_cast(Msg, State) ->
@@ -249,24 +266,11 @@ code_change(_OldVsn, State, _Extra) ->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
-h_beat(Interval)->
- %   timer:sleep(Interval),
-%    io:format(" *************** "),
-%    io:format(" ~p",[{time(),?MODULE}]),
-%    io:format(" *************** ~n"),
-
-    % Update computer status
-    case rpc:call(node(),machine,status,[all],19*1000) of
-	{badrpc,Reason}->
-	    % log as a ticket
-	    io:format("Log ticket ~p~n",[{badrpc,Reason,?MODULE,?LINE}]),
-	    ok;
-	Status->
-%	    io:format("Status ~p~n",[{Status,?MODULE,?LINE}]),
-	    rpc:call(node(),machine,update_status,[Status],5*1000)    
-    end,
+wanted_state(Interval)->
+    timer:sleep(2000),
+    cluster:wanted_state(),
     timer:sleep(Interval),
-    rpc:cast(node(),?MODULE,heart_beat,[Interval]).
+    rpc:cast(node(),?MODULE,wanted_state,[Interval]).
  
 %% --------------------------------------------------------------------
 %% Internal functions

@@ -17,12 +17,40 @@
 
 
 %% --------------------------------------------------------------------
--export([create/1]).
+-export([create/1,
+	 wanted_state/0
+	]).
 
 
 %% ====================================================================
 %% External functions
 %% ====================================================================
+wanted_state()->
+    spawn(fun()->get_wanted_state() end),
+    ok.
+
+get_wanted_state()->
+    WantedClusterIds=iaas:wanted_clusters(),
+    RunningClusters=iaas:running_clusters(),
+    CheckedRunningClusters=check_running_cluster(RunningClusters,[]),
+    ClusterToCreate=[ClusterId||ClusterId<-WantedClusterIds,
+				false==lists:keymember(ClusterId,1,CheckedRunningClusters)],
+    [spawn(iaas,create_cluster,[ClusterId])||ClusterId<-ClusterToCreate],
+    ok.
+
+
+check_running_cluster([],RunningClusters)->
+    RunningClusters;
+check_running_cluster([{ClusterId,KubeletNodes}|T],Acc)->
+    L1=[net_adm:ping(KubeletNode)||{KubeletNode,HostId}<-KubeletNodes],
+    NewAcc=case [R||R<-L1,R==pang] of
+	       []->
+		   [{ClusterId,KubeletNodes}|Acc];
+	       _ ->
+		   Acc
+	   end,
+    check_running_cluster(T,NewAcc).
+	
 
 %% --------------------------------------------------------------------
 %% Function:start/0 
@@ -42,9 +70,10 @@ create(ClusterId)->
 	      AllHosts=lists:append(ControllerHost,H1),
 	      AllHostInfo=lists:append([db_host_info:read(HostId)||HostId<-AllHosts]),
 	      NodeName=ClusterId++"_"++"kubelet",
-	      erlang:set_cookie(node(),list_to_atom(Cookie)),
+%	      erlang:set_cookie(node(),list_to_atom(Cookie)),
 	      ListToReduce=[[Info,NodeName,Cookie]||Info<-AllHostInfo],
-	      RunningKubeletNodes=[{XNode,XHostId}||{ok,XNode,XHostId,_,_}<-mapreduce:start(F1,F2,[],ListToReduce)]
+	      RunningKubeletNodes=[{XNode,XHostId}||{ok,XNode,XHostId,_,_}<-mapreduce:start(F1,F2,[],ListToReduce)],
+	      {ok,ClusterId,RunningKubeletNodes}
 	      
       end,
     R.
@@ -67,6 +96,7 @@ start_node(Pid,[{HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
     UniqueNodeName=NodeName++"_"++HostId,
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
     rpc:call(Node,init,stop,[]),
+    erlang:set_cookie(node(),list_to_atom(Cookie)),
     timer:sleep(1000),
  %   io:format("UniqueNodeName = ~p~n",[UniqueNodeName]),
     ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,						
