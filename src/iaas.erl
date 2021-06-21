@@ -51,7 +51,7 @@
 	 ping/0,
 	 wanted_state/2,
 	 wanted_state/1,
-	 is_wanted_state/0
+	 clusters_is_wanted_state/0
 	]).
 
 %% gen_server callbacks
@@ -96,8 +96,8 @@ not_available_clusters()->
     gen_server:call(?MODULE, {not_available_clusters},infinity).
 status_cluster(ClusterId)->
     gen_server:call(?MODULE, {status_cluster,ClusterId},infinity).
-is_wanted_state()->
-    gen_server:call(?MODULE, {is_wanted_state},infinity).
+clusters_is_wanted_state()->
+    gen_server:call(?MODULE, {clusters_is_wanted_state},infinity).
 
 %%----------------------------------------------------------------------
 
@@ -168,7 +168,7 @@ handle_call({status_host,HostId},_From,State) ->
     {reply, Reply, State};
 
 %%------- Clusters
-handle_call({is_wanted_state},_From,State) ->
+handle_call({clusters_is_wanted_state},_From,State) ->
     Reply=rpc:call(node(),cluster,is_wanted_state,[State#state.running_clusters]),
     {reply, Reply, State};
 
