@@ -37,13 +37,13 @@ start()->
     ok=pass_0(),
    io:format("~p~n",[{"Stop pass_0()",?MODULE,?FUNCTION_NAME,?LINE}]),
 
- %   io:format("~p~n",[{"Start pass_1()",?MODULE,?FUNCTION_NAME,?LINE}]),
- %   ok=pass_1(),
- %   io:format("~p~n",[{"Stop pass_1()",?MODULE,?FUNCTION_NAME,?LINE}]),
+    io:format("~p~n",[{"Start pass_1()",?MODULE,?FUNCTION_NAME,?LINE}]),
+    ok=pass_1(),
+    io:format("~p~n",[{"Stop pass_1()",?MODULE,?FUNCTION_NAME,?LINE}]),
 
-%    io:format("~p~n",[{"Start pass_2()",?MODULE,?FUNCTION_NAME,?LINE}]),
-%    ok=pass_2(),
-%    io:format("~p~n",[{"Stop pass_2()",?MODULE,?FUNCTION_NAME,?LINE}]),
+    io:format("~p~n",[{"Start pass_2()",?MODULE,?FUNCTION_NAME,?LINE}]),
+    ok=pass_2(),
+    io:format("~p~n",[{"Stop pass_2()",?MODULE,?FUNCTION_NAME,?LINE}]),
 
 %    io:format("~p~n",[{"Start pass_3()",?MODULE,?FUNCTION_NAME,?LINE}]),
 %    ok=pass_3(),
@@ -74,8 +74,8 @@ start()->
 %% Returns: non
 %% --------------------------------------------------------------------
 pass_0()->
-%    {error,[eexists,"glurk"]}=oam:create_cluster("glurk"),
-%    [{"test_1",2,["c0","c1"],"test_1_cookie",[],false}]=oam:create_cluster("test_1"),
+    
+    ok=oam_lib:init_dbase(),
     
     ok.
 
@@ -85,7 +85,8 @@ pass_0()->
 %% Returns: non
 %% --------------------------------------------------------------------
 pass_1()->
-  
+    false=iaas:clusters_is_wanted_state(),
+    ok=iaas:wanted_state(),
     ok.
 
 %% --------------------------------------------------------------------
@@ -94,8 +95,8 @@ pass_1()->
 %% Returns: non
 %% --------------------------------------------------------------------
 pass_2()->
-   
-    
+    timer:sleep(15*1000),
+    true=iaas:clusters_is_wanted_state(),
     ok.
 
 %% --------------------------------------------------------------------

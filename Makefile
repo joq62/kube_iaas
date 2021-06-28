@@ -25,6 +25,7 @@ unit_test:
 #	test application
 	mkdir test_ebin;
 	cp test_src/*.app test_ebin;
+	cp ../oam/src/*.erl test_src;
 	erlc -o test_ebin test_src/*.erl;
 	erl -pa ebin -pa test_ebin -pa support/ebin\
 	    -setcookie abc\

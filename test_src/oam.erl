@@ -1,57 +1,81 @@
 %%% -------------------------------------------------------------------
 %%% @author  : Joq Erlang
 %%% @doc: : 
-%%% Manage Computers
-%%% 
+%%% Create Controller per cluster, the Controller ceates the cluster 
+%%% Check health per cluster
+%%% Delete a cluster
+%%% Add + remove hosts per cluster  
+%%% Install Cluster
+%%% Install cluster
+%%% Data-{HostId,Ip,SshPort,Uid,Pwd}
+%%% available_hosts()-> [{HostId,Ip,SshPort,Uid,Pwd},..]
+%%% install_leader_host({HostId,Ip,SshPort,Uid,Pwd})->ok|{error,Err}
+%%% cluster_status()->[{running,WorkingNodes},{not_running,NotRunningNodes}]
+
 %%% Created : 
 %%% -------------------------------------------------------------------
--module(iaas). 
- 
+-module(oam).  
 -behaviour(gen_server).
+
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
-
+ 
 %% --------------------------------------------------------------------
 
 %% --------------------------------------------------------------------
 %% Key Data structures
 %% 
 %% --------------------------------------------------------------------
--record(state, {running_hosts,not_available_hosts,
-		running_clusters,not_available_clusters}).
+-record(state, {}).
 
 
 
 %% --------------------------------------------------------------------
 %% Definitions 
--define(WantedStateInterval,60*1000).
+%% --------------------------------------------------------------------
 
+%% --------------------------------------------------------------------
+%% Function: available_hosts()
+%% Description: Based on hosts.config file checks which hosts are avaible
+%% Returns: List({HostId,Ip,SshPort,Uid,Pwd}
 %% --------------------------------------------------------------------
 
 
+
+
+
+% OaM related
+% Admin
 -export([
-	 status_all_hosts/0,
-	 running_hosts/0,
-	 not_available_hosts/0,
-	 status_host/1
+	 status_all_clusters/0
+	]).
+
+
+-export([
+	 status_hosts/0,
+	 cluster_info/0,
+	 host_info/0,
+	 catalog_info/0
+	]).
+
+% Operate
+-export([
+	 create_cluster/1,
+	 create_cluster/4,
+	 
+	 status_cluster/1
 	]).
 
 -export([
-	 clusters_is_wanted_state/0,
-	 wanted_state/1,
-	 wanted_state/0,
-	 create_cluster/1,
-	 status_all_clusters/0,
-	 running_clusters/0,
-	 not_available_clusters/0,
-	 status_cluster/1
+	
+
 	]).
+
 
 -export([start/0,
 	 stop/0,
 	 ping/0
-
 	]).
 
 %% gen_server callbacks
@@ -62,6 +86,8 @@
 %% External functions
 %% ====================================================================
 
+%% Asynchrounus Signals
+
 
 %% Gen server functions
 
@@ -69,45 +95,40 @@ start()-> gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 stop()-> gen_server:call(?MODULE, {stop},infinity).
 
 
+%%  Admin 
+status_hosts()->
+    gen_server:call(?MODULE, {status_hosts},infinity).
+cluster_info()->
+    gen_server:call(?MODULE, {cluster_info},infinity).   
+host_info()->
+    gen_server:call(?MODULE, {host_info},infinity).  
+catalog_info()->
+    gen_server:call(?MODULE, {catalog_info},infinity).  
+
+%%---------------------------------------------------------------
+
+create_cluster(ClusterName,NumControllers,Hosts,Cookie)->
+    gen_server:call(?MODULE, {create_cluster,ClusterName,Cookie,Hosts,NumControllers},infinity).
+create_cluster(ClusterId)->
+    gen_server:call(?MODULE, {create_cluster,ClusterId},infinity).
+delete_cluster(ClusterId)->
+    gen_server:call(?MODULE, {delete,ClusterId},infinity).
+status_all_clusters()->    
+    gen_server:call(?MODULE, {status_all_clusters},infinity).
+status_cluster(ClusterId)->
+    gen_server:call(?MODULE, {status_cluster,ClusterId},infinity).
+    
+
+
+
+%%---------------------------------------------------------------
+
 ping()-> 
     gen_server:call(?MODULE, {ping},infinity).
 
 %%-----------------------------------------------------------------------
 
-
-status_all_hosts()->
-    gen_server:call(?MODULE, {status_all_hosts},infinity).
-running_hosts()->
-    gen_server:call(?MODULE, {running_hosts},infinity).
-not_available_hosts()->
-    gen_server:call(?MODULE, {not_available_hosts},infinity).
-status_host(HostId)->
-    gen_server:call(?MODULE, {status_host,HostId},infinity).
-
-%%-----------------------------------------------------------------------
-
-create_cluster(ClusterId)->
-    gen_server:call(?MODULE, {create_cluster,ClusterId},infinity).
-
-clusters_is_wanted_state()->
-    gen_server:call(?MODULE, {clusters_is_wanted_state},infinity).
-status_all_clusters()->
-    gen_server:call(?MODULE, {status_all_clusters},infinity).
-running_clusters()->
-    gen_server:call(?MODULE, {running_clusters},infinity).
-not_available_clusters()->
-    gen_server:call(?MODULE, {not_available_clusters},infinity).
-status_cluster(ClusterId)->
-    gen_server:call(?MODULE, {status_cluster,ClusterId},infinity).
-
-
 %%----------------------------------------------------------------------
-
-wanted_state()->
-    gen_server:cast(?MODULE, {wanted_state}).
-
-wanted_state(Interval)->
-    gen_server:cast(?MODULE, {wanted_state,Interval}).
 
 
 %% ====================================================================
@@ -115,7 +136,7 @@ wanted_state(Interval)->
 %% ====================================================================
 
 %% --------------------------------------------------------------------
-%% Function: init/1
+%% Function: 
 %% Description: Initiates the server
 %% Returns: {ok, State}          |
 %%          {ok, State, Timeout} |
@@ -124,23 +145,14 @@ wanted_state(Interval)->
 %
 %% --------------------------------------------------------------------
 
-% To be removed
 
 init([]) ->
-    ssh:start(),
-    case rpc:call(node(),host,status_all_hosts,[],15*1000) of
-	{ok,RH,NAH}->
-	    RunningHosts=RH,
-	    NotAvailableHosts=NAH;
-	_Err->
-	    RunningHosts=[],
-	    NotAvailableHosts=[]
-    end,
- %   spawn(fun()->wanted_state(?WantedStateInterval,[]) end),
-    {ok, #state{running_hosts=RunningHosts,
-		not_available_hosts=NotAvailableHosts,
-		running_clusters=[],
-		not_available_clusters=[]}}.
+    % Stop and restart mnesia
+    ok=oam_lib:init_dbase(),
+   
+    
+    
+    {ok, #state{}}.
     
 %% --------------------------------------------------------------------
 %% Function: handle_call/3
@@ -153,71 +165,34 @@ init([]) ->
 %%          {stop, Reason, State}            (aterminate/2 is called)
 %% --------------------------------------------------------------------
 
-%%-------- Hosts
-handle_call({status_all_hosts},_From,State) ->
-    Reply={State#state.running_hosts,State#state.not_available_hosts},
+
+handle_call({cluster_info},_From,State) ->
+    Reply=etcd:cluster_info(),
     {reply, Reply, State};
 
-handle_call({running_hosts},_From,State) ->
-    Reply=State#state.running_hosts,
+handle_call({host_info},_From,State) ->
+    Reply=etcd:host_info(),
     {reply, Reply, State};
 
-handle_call({not_available_hosts},_From,State) ->
-    Reply=State#state.not_available_hosts,
-    {reply, Reply, State};
-
-handle_call({status_host,HostId},_From,State) ->
-    AllHosts=lists:append(State#state.running_hosts,State#state.not_available_hosts),
-    Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllHosts,
-			       HostId==XHostId],
-    {reply, Reply, State};
-
-%%------- Clusters
-
-handle_call({clusters_is_wanted_state},_From,State) ->
-    Reply=rpc:call(node(),cluster,is_wanted_state,[State#state.running_clusters]),
+handle_call({catalog_info},_From,State) ->
+    Reply=etcd:catalog_info(),
     {reply, Reply, State};
 
 
-handle_call({create_cluster,ClusterId},_From,State) ->
-    Reply = case rpc:call(node(),cluster,create,[ClusterId],25*1000) of
-		{ok,ClusterId,RunningKubeletNodes}->
-		    RunningClusters=[{ClusterId,RunningKubeletNodes}|lists:keydelete(ClusterId,1,State#state.running_clusters)],
-		    NewState=State#state{running_clusters=RunningClusters},
-		    ok;
-		Err->
-		    NewState=State,
-		    {error,[Err]}
-	    end,
-    {reply, Reply, NewState};
-
-handle_call({status_all_clusters},_From,State) ->
-    Reply={{running_clusters,State#state.running_clusters},{not_available_clusters,State#state.not_available_clusters}},
+handle_call({status_hosts},_From,State) ->
+    Reply=host_controller:status_hosts(),
     {reply, Reply, State};
 
-handle_call({running_clusters},_From,State) ->
-    Reply=State#state.running_clusters,
+handle_call({create_cluster,ClusterName},_From,State) ->
+    Reply=rpc:call(node(),oam_cluster,create,[ClusterName]),
     {reply, Reply, State};
-
-handle_call({not_available_clusters},_From,State) ->
-    Reply=State#state.not_available_clusters,
-    {reply, Reply, State};
-
-handle_call({status_cluster,_ClusterId},_From,State) ->
-%    AllClusters=lists:append(State#state.running_clusters,State#state.not_available_clusters),
-%    Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllClusters,
-	%		       HostId==XHostId],
-    Reply=glurk,
-    {reply, Reply, State};
-
-%%------ Standard
-
-handle_call({stop}, _From, State) ->
-    {stop, normal, shutdown_ok, State};
 
 handle_call({ping},_From,State) ->
     Reply={pong,node(),?MODULE},
     {reply, Reply, State};
+
+handle_call({stop}, _From, State) ->
+    {stop, normal, shutdown_ok, State};
 
 handle_call(Request, From, State) ->
     Reply = {unmatched_signal,?MODULE,Request,From},
@@ -230,14 +205,7 @@ handle_call(Request, From, State) ->
 %%          {noreply, State, Timeout} |
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% -------------------------------------------------------------------
-handle_cast({wanted_state}, State) ->
-    spawn(fun()->cluster:wanted_state(State#state.running_clusters) end),    
-    {noreply, State};
-
-handle_cast({wanted_state,Interval}, State) ->
-    spawn(fun()->wanted_state(Interval,State#state.running_clusters) end),    
-    {noreply, State};
-			     
+    
 handle_cast(Msg, State) ->
     io:format("unmatched match cast ~p~n",[{?MODULE,?LINE,Msg}]),
     {noreply, State}.
@@ -279,12 +247,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
-wanted_state(Interval,RunningClusters)->
-    timer:sleep(2000),
-    cluster:wanted_state(RunningClusters),
-    timer:sleep(Interval),
-    rpc:cast(node(),?MODULE,wanted_state,[Interval]).
- 
+
 %% --------------------------------------------------------------------
 %% Internal functions
 %% --------------------------------------------------------------------
