@@ -34,7 +34,8 @@
 	 status_all_hosts/0,
 	 running_hosts/0,
 	 not_available_hosts/0,
-	 status_host/1
+	 status_host/1,
+	 update_host_status/0
 	]).
 
 -export([
@@ -73,8 +74,8 @@ ping()->
     gen_server:call(?MODULE, {ping},infinity).
 
 %%-----------------------------------------------------------------------
-
-
+update_host_status()->
+    gen_server:call(?MODULE, {update_host_status},infinity).
 status_all_hosts()->
     gen_server:call(?MODULE, {status_all_hosts},infinity).
 running_hosts()->
@@ -128,7 +129,7 @@ wanted_state(Interval)->
 
 init([]) ->
     ssh:start(),
-    case rpc:call(node(),host,status_all_hosts,[],15*1000) of
+    case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	{ok,RH,NAH}->
 	    RunningHosts=RH,
 	    NotAvailableHosts=NAH;
@@ -154,6 +155,18 @@ init([]) ->
 %% --------------------------------------------------------------------
 
 %%-------- Hosts
+handle_call({update_host_status},_From,State) ->
+    Reply= case rpc:call(node(),host,status_all_hosts,[],10*1000) of
+	       {ok,RH,NAH}->
+		   NewState=State#state{running_hosts=RH,
+					not_available_hosts=NAH},
+		   {ok,RH,NAH};
+	       Err->
+		   NewState=State,
+		   {error,Err}
+	   end,
+        {reply, Reply, NewState};
+
 handle_call({status_all_hosts},_From,State) ->
     Reply={State#state.running_hosts,State#state.not_available_hosts},
     {reply, Reply, State};
@@ -203,12 +216,6 @@ handle_call({not_available_clusters},_From,State) ->
     Reply=State#state.not_available_clusters,
     {reply, Reply, State};
 
-handle_call({status_cluster,_ClusterId},_From,State) ->
-%    AllClusters=lists:append(State#state.running_clusters,State#state.not_available_clusters),
-%    Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllClusters,
-	%		       HostId==XHostId],
-    Reply=glurk,
-    {reply, Reply, State};
 
 %%------ Standard
 

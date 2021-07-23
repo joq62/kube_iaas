@@ -64,7 +64,7 @@ setup()->
 %		 rpc:call(node(),?APP,ping,[],2*5000)),		 
 
     {ok,_}=?APP:start(),
-
+    sys:log(?APP,true),
     ok.
 
 

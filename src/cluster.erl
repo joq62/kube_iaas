@@ -13,12 +13,17 @@
 %%---------------------------------------------------------------------
 %% Records & defintions
 %%---------------------------------------------------------------------
+%missing clusters
+%running clusters
 
-
-
+-define(KubeletNodeName(ClusterId),ClusterId++"_"++"kubelet").
+-define(KubeletNode(ClusterId,HostId),list_to_atom(ClusterId++"_"++"kubelet"++"_"++HostId++"@"++HostId)).
 %% --------------------------------------------------------------------
 -export([
+	 status_clusters/0,
+	 update_status/0,
 	 create/1,
+	 delete/1,
 	 wanted_state/1,
 	 is_wanted_state/1
 	]).
@@ -27,6 +32,13 @@
 %% ====================================================================
 %% External functions
 %% ====================================================================  
+update_status()->
+    % 
+    WantedClusterInfo=db_cluster_info:read_all(),
+%[ClusterId||{ClusterId,_KubeletNode,_NumWorkers,_WorkerNodes,_Cookie,_Glurk}<-db_cluster_info:read_all()],
+    WantedClusterInfo.
+
+
 
 is_wanted_state(RunningClusters)->
     case cluster_to_create(RunningClusters) of
@@ -67,6 +79,36 @@ check_running_cluster([{ClusterId,KubeletNodes}|T],Acc)->
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
 %% --------------------------------------------------------------------
+status_clusters()->
+    check(db_cluster_info:read_all(),[],[]).
+    
+check([],Running,Missing)->
+    {{running,Running},{missing,Missing}};
+check([{ClusterId,[ControllerHost],_,_,Cookie,_}|T],Running,Missing) ->
+    Node=?KubeletNode(ClusterId,ControllerHost),
+    erlang:set_cookie(node(),list_to_atom(Cookie)),
+    case net_adm:ping(Node) of
+	pong->
+	    NewRunning=[{ClusterId,Node}|Running],
+	    NewMissing=Missing;
+	pang ->
+	    NewMissing=[{ClusterId,Node}|Missing],
+	    NewRunning=Running
+    end,
+    check(T,NewRunning,NewMissing).
+
+delete(ClusterId)->
+      R=case db_cluster_info:read(ClusterId) of
+	  []->
+	      {error,[eexists,ClusterId]};
+	  ClusterInfo->
+		[{ClusterId,[ControllerHost],NumWorkers,WorkerHosts,Cookie,ControllerNode}]=ClusterInfo,
+		KubeletNode=?KubeletNode(ClusterId,ControllerHost),
+%		io:format("KubeletNode  ~p~n",[net_adm:ping(KubeletNode)]),
+		rpc:call(KubeletNode,init,stop,[])	      
+	end,
+    R.
+
 create(ClusterId)->
     F1=fun start_node/2,
     F2=fun check_node/3,
@@ -79,8 +121,8 @@ create(ClusterId)->
 			  false==lists:member(XHostId,ControllerHost)],
 	      AllHosts=lists:append(ControllerHost,H1),
 	      AllHostInfo=lists:append([db_host_info:read(HostId)||HostId<-AllHosts]),
-	      NodeName=ClusterId++"_"++"kubelet",
-%	      erlang:set_cookie(node(),list_to_atom(Cookie)),
+	      NodeName=?KubeletNodeName(ClusterId),  %ClusterId++"_"++"kubelet",
+	      erlang:set_cookie(node(),list_to_atom(Cookie)),
 	      ListToReduce=[[Info,NodeName,Cookie]||Info<-AllHostInfo],
 	      RunningKubeletNodes=[{XNode,XHostId}||{ok,XNode,XHostId,_,_}<-mapreduce:start(F1,F2,[],ListToReduce)],
 	      {ok,ClusterId,RunningKubeletNodes}
