@@ -20,26 +20,50 @@
 -define(KubeletNode(ClusterId,HostId),list_to_atom(ClusterId++"_"++"kubelet"++"_"++HostId++"@"++HostId)).
 %% --------------------------------------------------------------------
 -export([
-	 strive_desired_state/0,
 	 status_clusters/0,
 	 create/1,
-	 delete/1
+	 delete/1,
+	 wanted_state/1,
+	 is_wanted_state/1
 	]).
 
 
 %% ====================================================================
 %% External functions
 %% ====================================================================  
+is_wanted_state(RunningClusters)->
+    case cluster_to_create(RunningClusters) of
+	[]->
+	    true;
+	_ ->
+	    false
+    end.
+						       
+	    
+wanted_state(RunningClusters)->
+    ClusterToCreate=cluster_to_create(RunningClusters),
+    [spawn(iaas,create_cluster,[ClusterId])||ClusterId<-ClusterToCreate],
+    ok.
 
-%% --------------------------------------------------------------------
-%% Function:start/0 
-%% Description: Initiate the eunit tests, set upp needed processes etc
-%% Returns: non
-%% --------------------------------------------------------------------
-strive_desired_state()->
-    {{running,R},{missing,M}}=cluster:status_clusters(),
-    io:format("1. status_clusters() = ~p~n",[  {{running,R},{missing,M}}]),    
-    [cluster:create(ClusterId)||{ClusterId,_}<-M].
+cluster_to_create(RunningClusters)->
+    WantedClusterIds=[ClusterId||{ClusterId,_KubeletNode,_NumWorkers,_WorkerNodes,_Cookie,_Glurk}<-db_cluster_info:read_all()],
+    CheckedRunningClusters=check_running_cluster(RunningClusters,[]),
+    ClusterToCreate=[ClusterId||ClusterId<-WantedClusterIds,
+				false==lists:keymember(ClusterId,1,CheckedRunningClusters)],
+    ClusterToCreate.
+
+check_running_cluster([],RunningClusters)->
+    RunningClusters;
+check_running_cluster([{ClusterId,KubeletNodes}|T],Acc)->
+    L1=[net_adm:ping(KubeletNode)||{KubeletNode,HostId}<-KubeletNodes],
+    NewAcc=case [R||R<-L1,R==pang] of
+	       []->
+		   [{ClusterId,KubeletNodes}|Acc];
+	       _ ->
+		   Acc
+	   end,
+    check_running_cluster(T,NewAcc).
+	
 
 %% --------------------------------------------------------------------
 %% Function:start/0 
@@ -63,11 +87,7 @@ check([{ClusterId,[ControllerHost],_,_,Cookie,_}|T],Running,Missing) ->
 	    NewRunning=Running
     end,
     check(T,NewRunning,NewMissing).
-%% --------------------------------------------------------------------
-%% Function:start/0 
-%% Description: Initiate the eunit tests, set upp needed processes etc
-%% Returns: non
-%% --------------------------------------------------------------------
+
 delete(ClusterId)->
       R=case db_cluster_info:read(ClusterId) of
 	  []->
@@ -79,11 +99,7 @@ delete(ClusterId)->
 		rpc:call(KubeletNode,init,stop,[])	      
 	end,
     R.
-%% --------------------------------------------------------------------
-%% Function:start/0 
-%% Description: Initiate the eunit tests, set upp needed processes etc
-%% Returns: non
-%% --------------------------------------------------------------------
+
 create(ClusterId)->
     F1=fun start_node/2,
     F2=fun check_node/3,
