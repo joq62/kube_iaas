@@ -18,7 +18,8 @@
 %% Key Data structures
 %% 
 %% --------------------------------------------------------------------
--record(state, {running_hosts,not_available_hosts,
+-record(state, {running_hosts,
+		missing_hosts,
 		running_clusters,
 		missing_clusters}).
 
@@ -26,24 +27,23 @@
 
 %% --------------------------------------------------------------------
 %% Definitions 
--define(WantedStateInterval,60*1000).
-
+%-define(WantedStateInterval,60*1000).
+-define(ClusterStatusInterval,2*60*1000).
 %% --------------------------------------------------------------------
 
 
 -export([
 	 cluster_strive_desired_state/1,
 	 status_all_hosts/0,
+	 status_hosts/1,
 	 running_hosts/0,
-	 not_available_hosts/0,
+	 missing_hosts/0,
 	 status_host/1,
 	 update_host_status/0
 	]).
 
 -export([
 	 clusters_is_wanted_state/0,
-	 wanted_state/1,
-	 wanted_state/0,
 	 create_cluster/1,
 	 status_all_clusters/0,
 	 running_clusters/0,
@@ -82,8 +82,8 @@ status_all_hosts()->
     gen_server:call(?MODULE, {status_all_hosts},infinity).
 running_hosts()->
     gen_server:call(?MODULE, {running_hosts},infinity).
-not_available_hosts()->
-    gen_server:call(?MODULE, {not_available_hosts},infinity).
+missing_hosts()->
+    gen_server:call(?MODULE, {missing_hosts},infinity).
 status_host(HostId)->
     gen_server:call(?MODULE, {status_host,HostId},infinity).
 
@@ -107,8 +107,11 @@ status_cluster(ClusterId)->
 %%----------------------------------------------------------------------
 cluster_strive_desired_state(ClusterStatus)->
     gen_server:cast(?MODULE, {cluster_strive_desired_state,ClusterStatus}).
-wanted_state()->
-    gen_server:cast(?MODULE, {wanted_state}).
+
+
+
+status_hosts(HostsStatus)->
+    gen_server:cast(?MODULE, {status_hosts,HostsStatus}).
 
 wanted_state(Interval)->
     gen_server:cast(?MODULE, {wanted_state,Interval}).
@@ -131,17 +134,20 @@ wanted_state(Interval)->
 % To be removed
 
 init([]) ->
+    io:format("Start init ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE}]),
     ssh:start(),
     case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	{ok,RH,NAH}->
 	    RunningHosts=RH,
-	    NotAvailableHosts=NAH;
+	    MissingHosts=NAH;
 	_->
 	    RunningHosts=[],
-	    NotAvailableHosts=[]
+	    MissingHosts=[]
     end,
-    rpc:call(node(),cluster,strive_desired_state,[],5*5000),
-    ClusterStatus=rpc:call(node(),cluster,status_clusters,[],3*5000),
+    io:format("Hosts status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
+			      RunningHosts,MissingHosts}]),
+    rpc:call(node(),cluster,strive_desired_state,[],50*1000),
+    ClusterStatus=rpc:call(node(),cluster,status_clusters,[],50*1000),
     case ClusterStatus of
 	{{running,RunningClusters},{missing,MissingClusters}}->
 	    ok;
@@ -149,12 +155,18 @@ init([]) ->
 	    RunningClusters=[],
 	    MissingClusters=[]
     end,
-    spawn(fun()->cl_strive_desired_state() end),    
+    io:format("Cluster status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
+			      RunningClusters,MissingClusters}]),
+%    spawn(fun()->cl_strive_desired_state() end),    
+    spawn(fun()->cluster_status_interval() end),    
 
+    io:format("Successful starting of server ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE}]),
     {ok, #state{running_hosts=RunningHosts,
-		not_available_hosts=NotAvailableHosts,
+		missing_hosts=MissingHosts,
 		running_clusters=RunningClusters,
-		missing_clusters=MissingClusters}}.
+		missing_clusters=MissingClusters
+	       }
+    }.
     
 %% --------------------------------------------------------------------
 %% Function: handle_call/3
@@ -172,7 +184,7 @@ handle_call({update_host_status},_From,State) ->
     Reply= case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	       {ok,RH,NAH}->
 		   NewState=State#state{running_hosts=RH,
-					not_available_hosts=NAH},
+					missing_hosts=NAH},
 		   {ok,RH,NAH};
 	       Err->
 		   NewState=State,
@@ -181,19 +193,19 @@ handle_call({update_host_status},_From,State) ->
         {reply, Reply, NewState};
 
 handle_call({status_all_hosts},_From,State) ->
-    Reply={State#state.running_hosts,State#state.not_available_hosts},
+    Reply={State#state.running_hosts,State#state.missing_hosts},
     {reply, Reply, State};
 
 handle_call({running_hosts},_From,State) ->
     Reply=State#state.running_hosts,
     {reply, Reply, State};
 
-handle_call({not_available_hosts},_From,State) ->
-    Reply=State#state.not_available_hosts,
+handle_call({missing_hosts},_From,State) ->
+    Reply=State#state.missing_hosts,
     {reply, Reply, State};
 
 handle_call({status_host,HostId},_From,State) ->
-    AllHosts=lists:append(State#state.running_hosts,State#state.not_available_hosts),
+    AllHosts=lists:append(State#state.running_hosts,State#state.missing_hosts),
     Reply=[{Status,XHostId,Ip,Port}||{Status,XHostId,Ip,Port}<-AllHosts,
 			       HostId==XHostId],
     {reply, Reply, State};
@@ -246,15 +258,27 @@ handle_call(Request, From, State) ->
 %%          {stop, Reason, State}            (terminate/2 is called)
 %% -------------------------------------------------------------------
 
+handle_cast({status_hosts,HostsStatus}, State) ->
+   % io:format("ClusterStatus ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterStatus}]),
+    case HostsStatus of
+	{ok,Running,Missing}->
+	    NewState=State#state{running_hosts=Running,missing_hosts=Missing};
+	Err->
+	    io:format("Err ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Err}]),
+	    NewState=State
+    end,
+    {noreply, NewState};
+
 handle_cast({cluster_strive_desired_state,ClusterStatus}, State) ->
- %   io:format("ClusterStatus ~p~n",[{?MODULE,?LINE,ClusterStatus}]),
+   % io:format("ClusterStatus ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterStatus}]),
     case ClusterStatus of
 	{{running,Running},{missing,Missing}}->
 	    NewState=State#state{running_clusters=Running,missing_clusters=Missing};
-	_Err->
+	Err->
+	    io:format("Err ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Err}]),
 	    NewState=State
     end,
-    spawn(fun()->cl_strive_desired_state() end),    
+    spawn(fun()->cluster_status_interval() end),    
     {noreply, NewState};
 
 
@@ -303,12 +327,28 @@ code_change(_OldVsn, State, _Extra) ->
 %% Description:
 %% Returns: non
 %% --------------------------------------------------------------------
--define(ClusterStatusInterval,6*10000).
-cl_strive_desired_state()->
-    rpc:call(node(),cluster,strive_desired_state,[],5*5000),
-    ClusterStatus=rpc:call(node(),cluster,status_clusters,[],3*5000),
-  %  io:format("ClusterStatus ~p~n",[{?MODULE,?LINE,ClusterStatus}]),
+cluster_status_interval()->
     timer:sleep(?ClusterStatusInterval),
+    io:format(" ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,time()}]),
+    spawn(fun()->check_status_hosts() end),
+    spawn(fun()->cl_strive_desired_state() end).
+
+check_status_hosts()->
+   Status=case rpc:call(node(),host,status_all_hosts,[],10*1000) of
+	      {ok,RH,NAH}->
+		  {ok,RH,NAH};
+	      Err->
+		  {error,Err}
+	  end,
+    io:format("Hosts status~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,time(),Status}]),
+    rpc:cast(node(),?MODULE,status_hosts,[Status]).
+
+cl_strive_desired_state()->
+  %  io:format(" ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,time()}]),
+    rpc:call(node(),cluster,strive_desired_state,[],90*1000),
+    ClusterStatus=rpc:call(node(),cluster,status_clusters,[],60*1000),
+    io:format("ClusterStatus ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,time(),ClusterStatus}]),
+
     rpc:cast(node(),?MODULE,cluster_strive_desired_state,[ClusterStatus]).
 
 %% --------------------------------------------------------------------

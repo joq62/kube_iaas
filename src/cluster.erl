@@ -38,8 +38,8 @@
 %% --------------------------------------------------------------------
 strive_desired_state()->
     {{running,R},{missing,M}}=cluster:status_clusters(),
-    io:format("1. status_clusters() = ~p~n",[  {{running,R},{missing,M}}]),    
-    [cluster:create(ClusterId)||{ClusterId,_}<-M].
+%    io:format("Status_clusters() = ~p~n",[{?MODULE,?LINE,{{running,R},{missing,M}}}]),    
+    [{cluster:create(ClusterId),ClusterId}||{ClusterId,_}<-M].
 
 %% --------------------------------------------------------------------
 %% Function:start/0 
@@ -118,7 +118,6 @@ start_nodes(Hosts,NodeName,Cookie)->
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
 %% --------------------------------------------------------------------
-
 start_node(Pid,[{HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
     UniqueNodeName=NodeName++"_"++HostId,
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
@@ -130,8 +129,10 @@ start_node(Pid,[{HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
    
  %   io:format("Ip,Port,Uid,Pwd ~p~n",[{Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),
     Result=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000),
- %   io:format("Result ~p~n",[{Result,?MODULE,?LINE}]),
+ %   case rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000) of
+	
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
+ %   io:format("Result ~p~n",[{?MODULE,?LINE,Result,Node,HostId,Ip,SshPort}]),
     Pid!{check_node,{Result,Node,HostId,Ip,SshPort}}.
 
 
@@ -146,34 +147,46 @@ check_node(check_node,Vals,[])->
 
 check_node([],Result)->
     Result;
+
+check_node([{{badrpc,timeout},Node,HostId,Ip,SshPort}|T],Acc)->
+    check_node(T,Acc); 
+check_node([{{error,_Err},Node,HostId,Ip,SshPort}|T],Acc)->
+    check_node(T,Acc); 
+  
 check_node([{Result,Node,HostId,Ip,SshPort}|T],Acc)->
-    io:format(" ~p~n",[{Result,HostId,Ip}]),
+%    io:format(" ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE, Result,HostId,Ip}]),
     NewAcc=case Result of
 	       ok->
 		   case node_started(Node) of
 		       true->
+		%	   io:format("ok ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
 			   [{ok,Node,HostId,Ip,SshPort}|Acc];
 		       false->
+		%	   io:format("error,host_not_started,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
 			   [{error,[host_not_started,Node,HostId,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
-	        _->
+	        Err->
+		 %  io:format("Err ,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Err,Node,HostId,Ip,SshPort}]),
 		   [{Result,Node,HostId,Ip,SshPort}|Acc]
 	   end,
     check_node(T,NewAcc).
 node_started(Node)->
-       check_started(50,Node,10,false).
+       check_started(10,Node,10,false).
     
 check_started(_N,Vm,_SleepTime,true)->
    true;
 check_started(0,Vm,_SleepTime,Result)->
     Result;
 check_started(N,Vm,SleepTime,_Result)->
-%    io:format("N,Vm ~p~n",[{N,Vm,SleepTime,?MODULE,?LINE}]),
-    NewResult=case net_adm:ping(Vm) of
+    io:format("N,Vm ~p~n",[{N,Vm,SleepTime,?MODULE,?LINE}]),
+    NewResult= case net_adm:ping(Vm) of
+	%case rpc:call(node(),net_adm,ping,[Vm],1000) of
 		  pong->
 		     true;
-		  _Err->
+		  pang->
 		      timer:sleep(SleepTime),
+		      false;
+		  {badrpc,_}->
 		      false
 	      end,
     check_started(N-1,Vm,SleepTime,NewResult).

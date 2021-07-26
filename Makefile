@@ -14,6 +14,8 @@ unit_test:
 	rm -rf  *~ */*~  erl_cra*;
 	rm -rf *_specs *_config *.log;
 #	support
+	erlc -o ebin ../interfaces/*.erl;
+#	support
 	rm -rf support;
 	git clone https://github.com/joq62/support.git;
 #	etcd
