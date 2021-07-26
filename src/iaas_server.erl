@@ -73,7 +73,7 @@ init([]) ->
     end,
     io:format("Hosts status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
 			      RunningHosts,MissingHosts}]),
-    rpc:call(node(),cluster,strive_desired_state,[],50*1000),
+ %   rpc:call(node(),cluster,strive_desired_state,[],50*1000),
     ClusterStatus=rpc:call(node(),cluster,status_clusters,[],50*1000),
     case ClusterStatus of
 	{{running,RunningClusters},{missing,MissingClusters}}->
@@ -85,7 +85,7 @@ init([]) ->
     io:format("Cluster status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
 			      RunningClusters,MissingClusters}]),
 %    spawn(fun()->cl_strive_desired_state() end),    
-    spawn(fun()->cluster_status_interval() end),    
+  %  spawn(fun()->cluster_status_interval() end),    
 
     io:format("Successful starting of server ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE}]),
     {ok, #state{running_hosts=RunningHosts,

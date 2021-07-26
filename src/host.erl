@@ -26,29 +26,29 @@ status_all_hosts()->
   %  io:format("AllHosts = ~p~n",[{?MODULE,?LINE,AllHosts}]),
     Status=mapreduce:start(F1,F2,[],AllHosts),
   %  io:format("Status = ~p~n",[{?MODULE,?LINE,Status}]),
-    Running=[{running,HostId,Ip,Port}||{running,HostId,Ip,Port}<-Status],
-    NotAvailable=[{not_available,HostId,Ip,Port}||{not_available,HostId,Ip,Port}<-Status],
-    {ok,Running,NotAvailable}.
+    Running=[{running,Alias,HostId,Ip,Port}||{running,Alias,HostId,Ip,Port}<-Status],
+    Missing=[{missing,Alias,HostId,Ip,Port}||{missing,Alias,HostId,Ip,Port}<-Status],
+    {ok,Running,Missing}.
 
-get_hostname(Parent,{HostId,IpAddr,Port,User,PassWd})->    
+get_hostname(Parent,{Alias,HostId,IpAddr,Port,User,PassWd})->    
   %  io:format("get_hostname= ~p~n",[{?MODULE,?LINE,HostId,User,PassWd,IpAddr,Port}]),
     Msg="hostname",
     Result=rpc:call(node(),my_ssh,ssh_send,[IpAddr,Port,User,PassWd,Msg, 5*1000],4*1000),
   %  io:format("Result, HostId= ~p~n",[{?MODULE,?LINE,Result,HostId}]),
-    Parent!{machine_status,{HostId,IpAddr,Port,Result}}.
+    Parent!{machine_status,{Alias,HostId,IpAddr,Port,Result}}.
 
 check_host_status(machine_status,Vals,_)->
     check_host_status(Vals,[]).
 
 check_host_status([],Status)->
     Status;
-check_host_status([{HostId,IpAddr,Port,[HostId]}|T],Acc)->
-    NewAcc=[{running,HostId,IpAddr,Port}|Acc],
+check_host_status([{Alias,HostId,IpAddr,Port,[HostId]}|T],Acc)->
+    NewAcc=[{running,Alias,HostId,IpAddr,Port}|Acc],
     check_host_status(T,NewAcc);
-check_host_status([{HostId,IpAddr,Port,{error,_Err}}|T],Acc) ->
-    check_host_status(T,[{not_available,HostId,IpAddr,Port}|Acc]);
-check_host_status([{HostId,IpAddr,Port,{badrpc,timeout}}|T],Acc) ->
-    check_host_status(T,[{not_available,HostId,IpAddr,Port}|Acc]);
+check_host_status([{Alias,HostId,IpAddr,Port,{error,_Err}}|T],Acc) ->
+    check_host_status(T,[{missing,Alias,HostId,IpAddr,Port}|Acc]);
+check_host_status([{Alias,HostId,IpAddr,Port,{badrpc,timeout}}|T],Acc) ->
+    check_host_status(T,[{missing,Alias,HostId,IpAddr,Port}|Acc]);
 check_host_status([X|T],Acc) ->
     check_host_status(T,[{x,X}|Acc]).
 
@@ -61,12 +61,12 @@ read_status(all)->
     AllServers=if_db:server_read_all(),
     AllServersStatus=[{Status,HostId}||{HostId,_User,_PassWd,_IpAddr,_Port,Status}<-AllServers],
     Running=[HostId||{running,HostId}<-AllServersStatus],
-    NotAvailable=[HostId||{not_available,HostId}<-AllServersStatus],
-    [{running,Running},{not_available,NotAvailable}];
+    Missing=[HostId||{missing,HostId}<-AllServersStatus],
+    [{running,Running},{missing,Missing}];
 
 read_status(XHostId) ->
     AllServers=if_db:server_read_all(),
-    [ServersStatus]=[Status||{HostId,_User,_PassWd,_IpAddr,_Port,Status}<-AllServers,
+    [ServersStatus]=[Status||{_Alias,HostId,_User,_PassWd,_IpAddr,_Port,Status}<-AllServers,
 		     XHostId==HostId],
     ServersStatus.
 					
@@ -76,9 +76,9 @@ read_status(XHostId) ->
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
 %% -------------------------------------------------------------------
-update_status( [{running,Running},{not_available,NotAvailable}])->
+update_status( [{running,Running},{missing,Missing}])->
     [if_db:server_update(HostId,running)||HostId<-Running],
-    [if_db:server_update(HostId,not_available)||HostId<-NotAvailable],    
+    [if_db:server_update(HostId,Missing)||HostId<-Missing],    
     ok.
 
 %% -------------------------------------------------------------------
