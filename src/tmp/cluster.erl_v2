@@ -9,7 +9,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
--include("kube_logger.hrl").
+
 %%---------------------------------------------------------------------
 %% Records & defintions
 %%---------------------------------------------------------------------
@@ -20,7 +20,10 @@
 -define(KubeletNode(ClusterId,Alias,HostId),list_to_atom(ClusterId++"_"++"kubelet"++"_"++Alias++"@"++HostId)).
 %% --------------------------------------------------------------------
 -export([
-       	 strive_desired_state/0,
+	 create_controller/2,
+	 delete_controller/1,
+
+	 strive_desired_state/0,
 	 status_clusters/0,
 	 create/1,
 	 delete/1
@@ -39,7 +42,7 @@
 strive_desired_state()->
     {{running,_R},{missing,M}}=cluster:status_clusters(),
 %    io:format("Status_clusters() = ~p~n",[{?MODULE,?LINE,{{running,R},{missing,M}}}]),    
-    [{cluster:create(ClusterId),ClusterId}||ClusterId<-M].
+    [{cluster:create(ClusterId),ClusterId}||{ClusterId,_}<-M].
 
 %% --------------------------------------------------------------------
 %% Function:start/0 
@@ -64,29 +67,18 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
     erlang:set_cookie(node(),list_to_atom(Cookie)),   
  %   io:format("ClusterId,NodesToCheck~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterId,NodesToCheck}]),
     {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
- %   io:format(" {R1,M1} ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,R1,M1}]),
-    case M1 of
-	[]->
-	    NewRunning=[ClusterId|Running],
-	    NewMissing=Missing;
-	_ ->
-	    NewMissing=[ClusterId|Missing],
-	    NewRunning=Running
-    end,   
-  %  io:format("NewRunning, NewMissing~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,NewRunning,NewMissing}]),
-    check(T,NewRunning,NewMissing).
+    check(T,lists:append(R1,Running),lists:append(M1,Missing)).
 
-do_ping([],ClusterId,Running,Missing)->
+do_ping([],_,Running,Missing)->
     {Running,Missing};
 do_ping([Node|T],ClusterId,Running,Missing)->
    % io:format("Node,ClusterId,Running,Missing ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Node,ClusterId,Running,Missing}]),
-%    io:format("Node,ping ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Node,net_adm:ping(Node)}]),
     case net_adm:ping(Node) of
 	pong->
-	    NewRunning=[Node|Running],
+	    NewRunning=[{ClusterId,Node}|Running],
 	    NewMissing=Missing;
 	pang ->
-	    NewMissing=[Node|Missing],
+	    NewMissing=[{ClusterId,Node}|Missing],
 	    NewRunning=Running
     end,
     
@@ -109,11 +101,46 @@ delete(ClusterId)->
 		AllHostInfo=[db_host_info:read(Alias)||Alias<-AllAlias],
 		NodesToKill=[?KubeletNode(ClusterId,Alias,HostId)||[{Alias,HostId,_Ip,_SshPort,_UId,_Pwd}]<-AllHostInfo],
 %		io:format("KubeletNode  ~p~n",[net_adm:ping(KubeletNode)]),
-		?PrintLog(log,"Stopped Cluster Nodes",[ClusterId,NodesToKill]),
 		[{rpc:call(Node,init,stop,[]),Node}||Node<-NodesToKill]	      
 	end,
     R.
+%% --------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% --------------------------------------------------------------------
+create_controller(ClusterId,2)->
+    R=case db_cluster_info:read(ClusterId) of
+	  []->
+	      {error,[eexists,ClusterId]};
+	  ClusterInfo->
+	      [{ClusterId,ControllerHost,_NumWorkers,_WorkerHosts,Cookie,_ControllerNode}]=ClusterInfo,
+	      AllHostInfo=lists:append([db_host_info:read(HostId)||HostId<-ControllerHost]),
+	      NodeName=?KubeletNodeName(ClusterId),  %ClusterId++"_"++"kubelet",
+	      erlang:set_cookie(node(),list_to_atom(Cookie)),
+	      ListToReduce=[[Info,NodeName,Cookie]||Info<-AllHostInfo],
+	      NodeName=?KubeletNodeName(ClusterId),  %ClusterId++"_"++"kubelet"
+	      ok
+	      %{Result,Node}=start_node([HostInfo,NodeName,Cookie]),	      
+	      %check_node([{Result,Node,HostId,Ip,SshPort}],[])	      
+      end,
+    R.
 
+%% --------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% --------------------------------------------------------------------
+delete_controller(ClusterId)->
+    R=case db_cluster_info:read(ClusterId) of
+	  []->
+	      {error,[eexists,ClusterId]};
+	  ClusterInfo->
+	    
+	      ok
+	      	    
+      end,
+    R.
 %% --------------------------------------------------------------------
 %% Function:start/0 
 %% Description: Initiate the eunit tests, set upp needed processes etc
@@ -130,56 +157,32 @@ create(ClusterId)->
 	      {error,[eexists,ClusterId]};
 	  ClusterInfo->
 	      [{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,Cookie,_ControllerNode}]=ClusterInfo,
+%	      AllHostInfo=case HostType of
+%			      controller->
+%				  lists:append([db_host_info:read(HostId)||HostId<-ControllerHost]);
+%			      workers->
+%				  H1=[XHostId||XHostId<-WorkerHosts,
+%					       false==lists:member(XHostId,ControllerHost)],
+%				  lists:append([db_host_info:read(HostId)||HostId<-H1])
+%			  end,
 	      NodeName=?KubeletNodeName(ClusterId),  %ClusterId++"_"++"kubelet",
 	      erlang:set_cookie(node(),list_to_atom(Cookie)),	
 	      H1=[XAlias||XAlias<-WorkerAlias,
 			  false==lists:member(XAlias,ControllerAlias)],
 	      AllAlias=lists:append(ControllerAlias,H1),
-	      R1=create_list_to_reduce(AllAlias,NodeName,Cookie),	     
-	      case R1 of
-		  {error,ErrAlias}->
-		        {error,ErrAlias};
-		  {ok,ListToReduce}->
-		      StartResult=mapreduce:start(F1,F2,[],ListToReduce),
-		    %  io:format("StartResult ~p~n",[{?MODULE,?LINE,StartResult}]), 
-		      {ClusterId,StartResult}
-	      
+	      io:format("AllAlias ~p~n",[{?MODULE,?LINE,AllAlias}]),
+	     glurk= 'hur sklla man kolla att all input är korrect' ,
+	      AllAliasInfo=lists:append([db_host_info:read(Alias)||Alias<-AllAlias]),
+	      io:format("AllAliasInfo ~p~n",[{?MODULE,?LINE,AllAliasInfo}]),	
+	      ListToReduce=[[Info,NodeName,Cookie]||Info<-AllAliasInfo],
+	      io:format("ListToReduce ~p~n",[{?MODULE,?LINE,ListToReduce}]),
 	    %  RunningKubeletNodes=[{XNode,XHostId}||{ok,XNode,XHostId,_,_}<-mapreduce:start(F1,F2,[],ListToReduce)],
-	     % {ClusterId,mapreduce:start(F1,F2,[],ListToReduce)}
+	      {ClusterId,mapreduce:start(F1,F2,[],ListToReduce)}
 	      
 	    %  {ok,ClusterId,RunningKubeletNodes}
 	      
-	      end
       end,
     R.
-
-create_list_to_reduce(AllAlias,NodeName,Cookie)->
-    create_list_to_reduce(AllAlias,NodeName,Cookie,[]).
-create_list_to_reduce([],_NodeName,_Cookie,Acc)->
-    case [{error,Reason}||{error,Reason}<-Acc] of
-	[]->
-	%    ReduceInfo=lists:append([XInfo||{ok,XInfo}<-Acc]),
-	    ReduceInfo=[XInfo||{ok,XInfo}<-Acc],
-	    {ok,ReduceInfo};
-	ErrList->
-	    {error,ErrList}
-    end;
-create_list_to_reduce([Alias|T],NodeName,Cookie,Acc)->
-    Info=case db_host_info:read(Alias) of
-	     []->
-		 {error,[eexists,Alias]};
-	     [AliasInfo]->
-		 {ok,[AliasInfo,NodeName,Cookie]}
-	 end,
-    create_list_to_reduce(T,NodeName,Cookie,[Info|Acc]).    
-  %  io:format("AllAlias ~p~n",[{?MODULE,?LINE,AllAlias}]),
-    %glurk= 'hur sklla man kolla att all input är korrect' ,
-    %AllAliasInfo=lists:append([db_host_info:read(Alias)||Alias<-AllAlias]),
-  %  io:format("AllAliasInfo ~p~n",[{?MODULE,?LINE,AllAliasInfo}]),	
-  %  ListToReduce=[[Info,NodeName,Cookie]||Info<-AllAliasInfo],
-  %  io:format("ListToReduce ~p~n",[{?MODULE,?LINE,ListToReduce}]),
-
-
 %% --------------------------------------------------------------------
 %% Function:start/0 
 %% Description: Initiate the eunit tests, set upp needed processes etc
@@ -203,7 +206,7 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
     Result= case rpc:call(node(),net_adm,ping,[Node],1*1000) of
 		pong->
-		    io:format("already started  ~p~n",[{Node,Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),
+		     io:format("already started  ~p~n",[{Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),
 		    ok;
 		_->
 		    rpc:call(Node,init,stop,[]),
@@ -243,12 +246,10 @@ check_node(check_node,Vals,[])->
 check_node([],Result)->
     Result;
 
-check_node([{{badrpc,timeout},Node,Alias,Ip,SshPort}|T],Acc)->
-    ?PrintLog(ticket,"Failed to start",[ Alias,Node,Ip,SshPort,{badrpc,timeout}]),
-    check_node(T,[{error,[{badrpc,timeout},Node,Alias,Ip,SshPort]}|Acc]); 
-check_node([{{error,Reason},Node,Alias,Ip,SshPort}|T],Acc)->
-    ?PrintLog(ticket,"Failed to start",[ Alias,Node,Ip,SshPort,{error,Reason}]),
-     check_node(T,[{error,[Reason,Node,Alias,Ip,SshPort]}|Acc]);
+check_node([{{badrpc,timeout},_Node,_Alias,_Ip,_SshPort}|T],Acc)->
+    check_node(T,Acc); 
+check_node([{{error,_Err},_Node,_Alias,_Ip,_SshPort}|T],Acc)->
+    check_node(T,Acc); 
   
 check_node([{Result,Node,Alias,Ip,SshPort}|T],Acc)->
 %    io:format(" ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE, Result,HostId,Ip}]),
@@ -256,23 +257,17 @@ check_node([{Result,Node,Alias,Ip,SshPort}|T],Acc)->
 	       ok->
 		   case node_started(Node) of
 		       true->
-			%   io:format("Node started  ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
-			   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
-			  % io:format("~s: ~w, ~s, Data: ~s, ~w, ~s, ~w ~n",
-			%	     [misc_fun:date_time(),log,"Started succesful ",Alias,Node,Ip,SshPort]),
+		%	   io:format("ok ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
 			   [{ok,Node,Alias,Ip,SshPort}|Acc];
 		       false->
 		%	   io:format("error,host_not_started,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
-			   ?PrintLog(ticket,"Failed to start",[Alias,Node,Ip,SshPort]),
-			%   io:format("Ticket Failed to started  HostId: ~s, Node: ~w, IP: ~s, Port: ~w ~n",[Alias,Node,Ip,SshPort]),
 			   [{error,[host_not_started,Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
 	        _Err->
 		 %  io:format("Err ,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Err,Node,HostId,Ip,SshPort}]),
-		   ?PrintLog(ticket,"Failed to start",[Alias,Node,Ip,SshPort]),
 		   [{Result,Node,Alias,Ip,SshPort}|Acc]
 	   end,
-  %  io:format(" NewAcc ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,NewAcc}]),
+    io:format(" NewAcc ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,NewAcc}]),
     check_node(T,NewAcc).
 node_started(Node)->
        check_started(10,Node,10,false).

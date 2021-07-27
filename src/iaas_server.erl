@@ -11,7 +11,7 @@
 %% --------------------------------------------------------------------
 %% Include files
 %% --------------------------------------------------------------------
-
+-include("kube_logger.hrl").
 %% --------------------------------------------------------------------
 
 %% --------------------------------------------------------------------
@@ -61,7 +61,7 @@
 % To be removed
 
 init([]) ->
-    io:format("Start init ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE}]),
+    ?PrintLog(log,"Start init",[?MODULE]),
     ssh:start(),
     case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	{ok,RH,NAH}->
@@ -71,8 +71,8 @@ init([]) ->
 	    RunningHosts=[],
 	    MissingHosts=[]
     end,
-    io:format("Hosts status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
-			      RunningHosts,MissingHosts}]),
+    ?PrintLog(log,"Running Hosts ",[RunningHosts]),
+    ?PrintLog(log,"Missing Hosts ",[MissingHosts]),
  %   rpc:call(node(),cluster,strive_desired_state,[],50*1000),
     ClusterStatus=rpc:call(node(),cluster,status_clusters,[],50*1000),
     case ClusterStatus of
@@ -82,12 +82,13 @@ init([]) ->
 	    RunningClusters=[],
 	    MissingClusters=[]
     end,
-    io:format("Cluster status ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE,
-			      RunningClusters,MissingClusters}]),
+    ?PrintLog(log,"Running Clusters ",[RunningClusters]),
+    ?PrintLog(log,"Missing Clusters ",[MissingClusters]),
+
 %    spawn(fun()->cl_strive_desired_state() end),    
   %  spawn(fun()->cluster_status_interval() end),    
 
-    io:format("Successful starting of server ~p~n",[{time(),?FUNCTION_NAME,?MODULE,?LINE}]),
+    ?PrintLog(log,"Successful starting of server",[?MODULE]),
     {ok, #state{running_hosts=RunningHosts,
 		missing_hosts=MissingHosts,
 		running_clusters=RunningClusters,
