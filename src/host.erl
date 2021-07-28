@@ -9,6 +9,7 @@
 
 
 -export([
+       	 start_node/0,
 	 status_all_hosts/0,
 	 status/1,
 	 update_status/1,
@@ -18,6 +19,26 @@
 %% ====================================================================
 %% External functions
 %% ============================ ========================================
+
+%% -------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% -------------------------------------------------------------------
+
+%% -------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% -------------------------------------------------------------------
+start_node()->
+    ok.
+
+%% -------------------------------------------------------------------
+%% Function:start/0 
+%% Description: Initiate the eunit tests, set upp needed processes etc
+%% Returns: non
+%% -------------------------------------------------------------------
 status_all_hosts()->
     F1=fun get_hostname/2,
     F2=fun check_host_status/3,
