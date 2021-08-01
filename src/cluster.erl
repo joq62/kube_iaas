@@ -37,8 +37,8 @@
 %% Returns: non
 %% --------------------------------------------------------------------
 strive_desired_state()->
+   %   io:format("~p~n",[{?FUNCTION_NAME,?MODULE,?LINE}]),
     {{running,_R},{missing,M}}=cluster:status_clusters(),
-%    io:format("Status_clusters() = ~p~n",[{?MODULE,?LINE,{{running,R},{missing,M}}}]),    
     [{cluster:create(ClusterId),ClusterId}||{ClusterId,_}<-M].
 
 %% --------------------------------------------------------------------
@@ -47,13 +47,22 @@ strive_desired_state()->
 %% Returns: non
 %% --------------------------------------------------------------------
 status_clusters()->
-    check(db_cluster_info:read_all(),[],[]).
+    {ok,ClusterId}=application:get_env(cluster_id),
+    R=case db_cluster_info:read(atom_to_list(ClusterId)) of
+	  []->
+	      ?PrintLog(alert,"ClusterID eexists",[ClusterId,?FUNCTION_NAME,?MODULE,?LINE]),
+	      {error,["ClusterID eexists"]};
+	  ClusterInfo->
+	      check(ClusterInfo,[],[])
+      end,
+   % io:format("R ~p~n",[{R,?FUNCTION_NAME,?MODULE,?LINE}]),
+    R.
     
 check([],Running,Missing)->
     {{running,Running},{missing,Missing}};
 
 check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
-   % io:format("ControllerAlias, WorkerAlias ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ControllerAlias, WorkerAlias}]),
+  %  io:format("ControllerAlias, WorkerAlias ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ControllerAlias, WorkerAlias}]),
     H1=[XAlias||XAlias<-WorkerAlias,
 		false==lists:member(XAlias,ControllerAlias)],
     AllAlias=lists:append(ControllerAlias,H1),
@@ -64,7 +73,7 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
     erlang:set_cookie(node(),list_to_atom(Cookie)),   
  %   io:format("ClusterId,NodesToCheck~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterId,NodesToCheck}]),
     {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
- %   io:format(" {R1,M1} ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,R1,M1}]),
+%    io:format(" {R1,M1} ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,R1,M1}]),
     case M1 of
 	[]->
 	    NewRunning=[{ClusterId,R1}|Running],
@@ -76,7 +85,7 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
   %  io:format("NewRunning, NewMissing~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,NewRunning,NewMissing}]),
     check(T,NewRunning,NewMissing).
 
-do_ping([],ClusterId,Running,Missing)->
+do_ping([],_ClusterId,Running,Missing)->
     {Running,Missing};
 do_ping([Node|T],ClusterId,Running,Missing)->
    % io:format("Node,ClusterId,Running,Missing ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Node,ClusterId,Running,Missing}]),
@@ -130,6 +139,7 @@ create(ClusterId)->
     F2=fun check_node/3,
     R=case db_cluster_info:read(ClusterId) of
 	  []->
+	      ?PrintLog(ticket,"ClusterId eexists",[{error,[eexists,ClusterId]},?FUNCTION_NAME,?MODULE,?LINE]),
 	      {error,[eexists,ClusterId]};
 	  ClusterInfo->
 	      [{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,Cookie,_ControllerNode}]=ClusterInfo,
@@ -141,7 +151,8 @@ create(ClusterId)->
 	      R1=create_list_to_reduce(AllAlias,NodeName,ClusterId,Cookie),	     
 	      case R1 of
 		  {error,ErrAlias}->
-		        {error,ErrAlias};
+		      ?PrintLog(ticket,"reduce list",[{error,ErrAlias},?FUNCTION_NAME,?MODULE,?LINE]),
+		      {error,ErrAlias};
 		  {ok,ListToReduce}->
 		      StartResult=mapreduce:start(F1,F2,[],ListToReduce),
 		    %  io:format("StartResult ~p~n",[{?MODULE,?LINE,StartResult}]), 
@@ -194,44 +205,30 @@ start_node(Pid,[{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
 start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
  %   io:format("start_node ~p~n",[{?MODULE,?LINE,Alias,HostId,Ip,SshPort,NodeName,Cookie}]),
     RM_cluster="rm -rf "++ClusterId,
-    rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,RM_cluster,2*5000],3*5000),
+    RM_Result=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,RM_cluster,2*5000],3*5000),
+    ?PrintLog(log,"ssh ",[RM_cluster,RM_Result,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
     MKDIR_cluster="mkdir "++ClusterId,
-    rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,MKDIR_cluster,2*5000],3*5000),
-
+    MKDIR_result=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,MKDIR_cluster,2*5000],3*5000),
+    ?PrintLog(log,"ssh ",[MKDIR_cluster,MKDIR_result,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
     UniqueNodeName=NodeName++"_"++Alias,
     erlang:set_cookie(node(),list_to_atom(Cookie)),
     timer:sleep(1000),
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
     Result= case rpc:call(node(),net_adm,ping,[Node],1*1000) of
 		pong->
-		    io:format("already started  ~p~n",[{Node,Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),
+		    ?PrintLog(ticket,"already started ",[Node,ClusterId,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 		    ok;
 		_->
-		    rpc:call(Node,init,stop,[]),
-		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,						   rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000)
+		    NodeStop=rpc:call(Node,init,stop,[]),
+		    ?PrintLog(log,"init stop ",[NodeStop,Node,?FUNCTION_NAME,?MODULE,?LINE]),
+		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
+		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000),
+		    ?PrintLog(log,"ssh ",[ErlcCmdResult,ErlCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
+		    ErlcCmdResult
 	    end,
    % io:format("Result ~p~n",[{?MODULE,?LINE,Result,Node,Alias,Ip,SshPort}]),
     {Result,Node}.
 
-%start_node(Pid,[{HostId,Ip,SshPort,UId,Pwd},NodeName,Cookie])->
-%    UniqueNodeName=NodeName++"_"++HostId,
-%    erlang:set_cookie(node(),list_to_atom(Cookie)),
-%    timer:sleep(1000),
-%    Node=list_to_atom(UniqueNodeName++"@"++HostId),
-%    Result= case rpc:call(node(),net_adm,ping,[Node],1*1000) of
-%		pong->
-%		     io:format("already started  ~p~n",[{Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),
-%		    ok;
-%		_->
-%		    rpc:call(Node,init,stop,[]),
-%		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,				%		   rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000)
-%	    end,
- %   Pid!{check_node,{Result,Node,HostId,Ip,SshPort}}.
-
-		    %   io:format("UniqueNodeName = ~p~n",[UniqueNodeName]),
- %   case rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000) of
- %   io:format("Ip,Port,Uid,Pwd ~p~n",[{Ip,SshPort,UId,Pwd,?MODULE,?LINE}]),	
- %   io:format("Result ~p~n",[{?MODULE,?LINE,Result,Node,HostId,Ip,SshPort}]),
 %% --------------------------------------------------------------------
 %% Function:start/0 
 %% Description: Initiate the eunit tests, set upp needed processes etc
@@ -245,21 +242,22 @@ check_node([],Result)->
     Result;
 
 check_node([{{badrpc,timeout},Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
-    ?PrintLog(ticket,"Failed to start",[ Alias,Node,Ip,SshPort,{badrpc,timeout}]),
+    ?PrintLog(ticket,"Failed to start node",[Node,Alias,{badrpc,timeout},?FUNCTION_NAME,?MODULE,?LINE]),
     check_node(T,[{error,[{badrpc,timeout},Node,ClusterId,Alias,Ip,SshPort]}|Acc]); 
 check_node([{{error,Reason},Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
-    ?PrintLog(ticket,"Failed to start",[ Alias,Node,Ip,SshPort,{error,Reason}]),
+     ?PrintLog(ticket,"Failed to start node",[Node,Alias,{error,Reason},?FUNCTION_NAME,?MODULE,?LINE]),
      check_node(T,[{error,[Reason,Node,Alias,Ip,SshPort]}|Acc]);
   
 check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
-%    io:format(" ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE, Result,HostId,Ip}]),
+  %  ?PrintLog(debug,"Result",[Result,Alias,Node,ClusterId]),
     NewAcc=case Result of
 	       ok->
 		   case node_started(Node) of
 		       true->
 			   % laod_start kubelet
 			   [PodSpec]=db_pod_spec:read("kubelet"),
-			   case pod:load_start(Node,ClusterId,PodSpec) of
+			   {ok,MonitorNode}=application:get_env(monitor_node),
+			   case pod:load_start(Node,ClusterId,MonitorNode,PodSpec) of
 			       ok->
 				   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
 				   [{ok,Node,Alias,Ip,SshPort}|Acc];
@@ -268,27 +266,22 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 				   [{error,[kubelet_not_started,Node,Alias,Ip,SshPort,ErrStartKubelet,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 			   end;
 		       false->
-		%	   io:format("error,host_not_started,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Node,HostId,Ip,SshPort}]),
-			   ?PrintLog(ticket,"Failed to start",[Alias,Node,Ip,SshPort]),
-			%   io:format("Ticket Failed to started  HostId: ~s, Node: ~w, IP: ~s, Port: ~w ~n",[Alias,Node,Ip,SshPort]),
+			   ?PrintLog(ticket,"Failed to start node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 			   [{error,[host_not_started,Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
-	        _Err->
-		 %  io:format("Err ,~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,Err,Node,HostId,Ip,SshPort}]),
-		   ?PrintLog(ticket,"Failed to start",[Alias,Node,Ip,SshPort]),
+	        Err->
+		   ?PrintLog(ticket,"Failed to start node",[Node,Alias,Err,?FUNCTION_NAME,?MODULE,?LINE]),
 		   [{Result,Node,Alias,Ip,SshPort}|Acc]
 	   end,
-  %  io:format(" NewAcc ~p~n",[{?MODULE,?FUNCTION_NAME,?LINE,NewAcc}]),
     check_node(T,NewAcc).
 node_started(Node)->
-       check_started(10,Node,10,false).
+       check_started(50,Node,10,false).
     
 check_started(_N,_Vm,_SleepTime,true)->
    true;
 check_started(0,_Vm,_SleepTime,Result)->
     Result;
 check_started(N,Vm,SleepTime,_Result)->
-  %  io:format("N,Vm ~p~n",[{N,Vm,SleepTime,?MODULE,?LINE}]),
     NewResult= case net_adm:ping(Vm) of
 	%case rpc:call(node(),net_adm,ping,[Vm],1000) of
 		  pong->

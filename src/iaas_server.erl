@@ -263,17 +263,28 @@ cluster_status_interval()->
 check_status_hosts()->
    Status=case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	      {ok,RH,NAH}->
+		  PrintRunningHosts=[Alias||{running,Alias,_,_,_}<-RH],
+		  ?PrintLog(log,"Running Hosts ",[PrintRunningHosts]),
+		  PrintMissingHosts=[Alias||{missing,Alias,_,_,_}<-NAH],
+		  ?PrintLog(ticket,"Missing Hosts ",[PrintMissingHosts]),
 		  {ok,RH,NAH};
 	      Err->
+		  ?PrintLog(ticket,"Error ",[Err,?FUNCTION_NAME,?MODULE,?LINE]),
 		  {error,Err}
 	  end,
-    ?PrintLog(log,"Hosts status",[Status]),
+    
     rpc:cast(node(),iaas,status_hosts,[Status]).
 
 cl_strive_desired_state()->
     rpc:call(node(),cluster,strive_desired_state,[],90*1000),
     ClusterStatus=rpc:call(node(),cluster,status_clusters,[],60*1000),
-    ?PrintLog(log,"Cluster status",[ClusterStatus]),
+    {{running,RunningClusters},{missing,MissingClusters}}=ClusterStatus,
+    PrintRunningClusters=[ClusterId||{ClusterId,_}<-RunningClusters],
+    ?PrintLog(log,"Running Clusters ",[PrintRunningClusters]),
+    PrintMissingClusters=[ClusterId||{ClusterId,_}<-MissingClusters],
+    ?PrintLog(ticket,"Missing Clusters ",[PrintMissingClusters]),
+    
+    %?PrintLog(log,"Cluster status",[ClusterStatus]),
     rpc:cast(node(),iaas,cluster_strive_desired_state,[ClusterStatus]).
 
 %% --------------------------------------------------------------------
