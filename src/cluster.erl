@@ -70,7 +70,7 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
     AllHostInfo=[db_host_info:read(Alias)||Alias<-AllAlias],
  %   io:format("AllHostInfo ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,AllHostInfo}]),
     NodesToCheck=[?KubeletNode(ClusterId,Alias,HostId)||[{Alias,HostId,_Ip,_SshPort,_UId,_Pwd}]<-AllHostInfo],
-    erlang:set_cookie(node(),list_to_atom(Cookie)),   
+%    erlang:set_cookie(node(),list_to_atom(Cookie)),   
  %   io:format("ClusterId,NodesToCheck~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterId,NodesToCheck}]),
     {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
 %    io:format(" {R1,M1} ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,R1,M1}]),
@@ -144,7 +144,7 @@ create(ClusterId)->
 	  ClusterInfo->
 	      [{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,Cookie,_ControllerNode}]=ClusterInfo,
 	      NodeName=?KubeletNodeName(ClusterId),  %ClusterId++"_"++"kubelet",
-	      erlang:set_cookie(node(),list_to_atom(Cookie)),	
+	    %  erlang:set_cookie(node(),list_to_atom(Cookie)),	
 	      H1=[XAlias||XAlias<-WorkerAlias,
 			  false==lists:member(XAlias,ControllerAlias)],
 	      AllAlias=lists:append(ControllerAlias,H1),
@@ -211,7 +211,7 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
     MKDIR_result=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,MKDIR_cluster,2*5000],3*5000),
     ?PrintLog(log,"ssh ",[MKDIR_cluster,MKDIR_result,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
     UniqueNodeName=NodeName++"_"++Alias,
-    erlang:set_cookie(node(),list_to_atom(Cookie)),
+ %   erlang:set_cookie(node(),list_to_atom(Cookie)),
     timer:sleep(1000),
     Node=list_to_atom(UniqueNodeName++"@"++HostId),
     Result= case rpc:call(node(),net_adm,ping,[Node],1*1000) of
@@ -221,7 +221,7 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
 		_->
 		    NodeStop=rpc:call(Node,init,stop,[]),
 		    ?PrintLog(log,"init stop ",[NodeStop,Node,?FUNCTION_NAME,?MODULE,?LINE]),
-		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
+		    ErlCmd="erl -noshell -noinput "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
 		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000),
 		    ?PrintLog(log,"ssh ",[ErlcCmdResult,ErlCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 		    ErlcCmdResult
@@ -262,15 +262,15 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 				   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
 				   [{ok,Node,Alias,Ip,SshPort}|Acc];
 			       ErrStartKubelet->
-				   ?PrintLog(ticket,"Failed to start kubelet",[Alias,Node,Ip,SshPort,ErrStartKubelet]),
+				   ?PrintLog(ticket,"Failed to start kubelet",[ErrStartKubelet,Alias,Node,Ip,SshPort]),
 				   [{error,[kubelet_not_started,Node,Alias,Ip,SshPort,ErrStartKubelet,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 			   end;
 		       false->
-			   ?PrintLog(ticket,"Failed to start node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
+			   ?PrintLog(ticket,"Failed to connect to node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 			   [{error,[host_not_started,Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
 	        Err->
-		   ?PrintLog(ticket,"Failed to start node",[Node,Alias,Err,?FUNCTION_NAME,?MODULE,?LINE]),
+		   ?PrintLog(ticket,"error",[Err,Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 		   [{Result,Node,Alias,Ip,SshPort}|Acc]
 	   end,
     check_node(T,NewAcc).
@@ -282,6 +282,7 @@ check_started(_N,_Vm,_SleepTime,true)->
 check_started(0,_Vm,_SleepTime,Result)->
     Result;
 check_started(N,Vm,SleepTime,_Result)->
+ %   io:format("net_Adm ~p~n",[net_adm:ping(Vm)]),
     NewResult= case net_adm:ping(Vm) of
 	%case rpc:call(node(),net_adm,ping,[Vm],1000) of
 		  pong->
@@ -290,6 +291,7 @@ check_started(N,Vm,SleepTime,_Result)->
 		      timer:sleep(SleepTime),
 		      false;
 		  {badrpc,_}->
+		       timer:sleep(SleepTime),
 		      false
 	      end,
     check_started(N-1,Vm,SleepTime,NewResult).
