@@ -62,18 +62,13 @@ check([],Running,Missing)->
     {{running,Running},{missing,Missing}};
 
 check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
-  %  io:format("ControllerAlias, WorkerAlias ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ControllerAlias, WorkerAlias}]),
     H1=[XAlias||XAlias<-WorkerAlias,
 		false==lists:member(XAlias,ControllerAlias)],
     AllAlias=lists:append(ControllerAlias,H1),
-  %  io:format("AllAlias ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,AllAlias}]),
     AllHostInfo=[db_host_info:read(Alias)||Alias<-AllAlias],
- %   io:format("AllHostInfo ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,AllHostInfo}]),
     NodesToCheck=[?KubeletNode(ClusterId,Alias,HostId)||[{Alias,HostId,_Ip,_SshPort,_UId,_Pwd}]<-AllHostInfo],
 %    erlang:set_cookie(node(),list_to_atom(Cookie)),   
- %   io:format("ClusterId,NodesToCheck~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,ClusterId,NodesToCheck}]),
-    {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
-%    io:format(" {R1,M1} ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,R1,M1}]),
+   {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
     case M1 of
 	[]->
 	    NewRunning=[{ClusterId,R1}|Running],
@@ -82,14 +77,11 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
 	    NewMissing=[{ClusterId,M1}|Missing],
 	    NewRunning=Running
     end,   
-  %  io:format("NewRunning, NewMissing~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,NewRunning,NewMissing}]),
     check(T,NewRunning,NewMissing).
 
 do_ping([],_ClusterId,Running,Missing)->
     {Running,Missing};
 do_ping([Node|T],ClusterId,Running,Missing)->
-   % io:format("Node,ClusterId,Running,Missing ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Node,ClusterId,Running,Missing}]),
-%    io:format("Node,ping ~p~n",[{?FUNCTION_NAME,?MODULE,?LINE,Node,net_adm:ping(Node)}]),
     case net_adm:ping(Node) of
 	pong->
 	    NewRunning=[Node|Running],
@@ -97,8 +89,7 @@ do_ping([Node|T],ClusterId,Running,Missing)->
 	pang ->
 	    NewMissing=[Node|Missing],
 	    NewRunning=Running
-    end,
-    
+    end,    
     do_ping(T,ClusterId,NewRunning,NewMissing).
 %% --------------------------------------------------------------------
 %% Function:start/0 
@@ -111,7 +102,8 @@ delete(ClusterId)->
 	      {error,[eexists,ClusterId]};
 	  ClusterInfo->
 		[{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,Cookie,_ControllerNode}]=ClusterInfo,
-		erlang:set_cookie(node(),list_to_atom(Cookie)),
+	%	erlang:set_cookie(node(),list_to_atom(Cookie)),
+	%	?PrintLog(debug,"set_cookie",[Cookie,?FUNCTION_NAME,?MODULE,?LINE]),
 		 H1=[XAlias||XAlias<-WorkerAlias,
 			     false==lists:member(XAlias,ControllerAlias)],
 		AllAlias=lists:append(ControllerAlias,H1),
@@ -158,11 +150,6 @@ create(ClusterId)->
 		    %  io:format("StartResult ~p~n",[{?MODULE,?LINE,StartResult}]), 
 		      {ClusterId,StartResult}
 	      
-	    %  RunningKubeletNodes=[{XNode,XHostId}||{ok,XNode,XHostId,_,_}<-mapreduce:start(F1,F2,[],ListToReduce)],
-	     % {ClusterId,mapreduce:start(F1,F2,[],ListToReduce)}
-	      
-	    %  {ok,ClusterId,RunningKubeletNodes}
-	      
 	      end
       end,
     R.
@@ -179,6 +166,7 @@ create_list_to_reduce([],_NodeName,_ClusterId,_Cookie,Acc)->
 	    {error,ErrList}
     end;
 create_list_to_reduce([Alias|T],NodeName,ClusterId,Cookie,Acc)->
+ %   ?PrintLog(debug,"Cookie ",[Cookie,NodeName,?FUNCTION_NAME,?MODULE,?LINE]),
     Info=case db_host_info:read(Alias) of
 	     []->
 		 {error,[eexists,Alias]};
@@ -221,9 +209,12 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
 		_->
 		    NodeStop=rpc:call(Node,init,stop,[]),
 		    ?PrintLog(log,"init stop ",[NodeStop,Node,?FUNCTION_NAME,?MODULE,?LINE]),
+%		    ?PrintLog(debug,"Cookie ",[Cookie,Node,?FUNCTION_NAME,?MODULE,?LINE]),
+		 %   ?PrintLog(debug,"Node Cookie ",[rpc:call(node(),erlang,get_cookie,[]),node(),?FUNCTION_NAME,?MODULE,?LINE]),
 		    ErlCmd="erl -noshell -noinput "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
-		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,ErlCmd,2*5000],3*5000),
-		    ?PrintLog(log,"ssh ",[ErlcCmdResult,ErlCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
+		    SshCmd="nohup "++ErlCmd++" &",
+		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,SshCmd,2*5000],3*5000),
+		    ?PrintLog(log,"ssh ",[ErlcCmdResult,SshCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 		    ErlcCmdResult
 	    end,
    % io:format("Result ~p~n",[{?MODULE,?LINE,Result,Node,Alias,Ip,SshPort}]),
@@ -250,6 +241,7 @@ check_node([{{error,Reason},Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
   
 check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
   %  ?PrintLog(debug,"Result",[Result,Alias,Node,ClusterId]),
+ %   ?PrintLog(debug,"Cookie after created ",[rpc:call(Node,erlang,get_cookie,[]),Node,?FUNCTION_NAME,?MODULE,?LINE]),
     NewAcc=case Result of
 	       ok->
 		   case node_started(Node) of
@@ -259,6 +251,7 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 			   {ok,MonitorNode}=application:get_env(monitor_node),
 			   case pod:load_start(Node,ClusterId,MonitorNode,PodSpec) of
 			       ok->
+%				   ?PrintLog(debug,"Cookie after kubelte ",[rpc:call(Node,erlang,get_cookie,[]),Node,?FUNCTION_NAME,?MODULE,?LINE]),
 				   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
 				   [{ok,Node,Alias,Ip,SshPort}|Acc];
 			       ErrStartKubelet->
