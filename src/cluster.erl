@@ -22,6 +22,7 @@
 -export([
        	 strive_desired_state/0,
 	 status_clusters/0,
+	 status_clusters/1,
 	 create/1,
 	 delete/1
 	]).
@@ -46,9 +47,12 @@ strive_desired_state()->
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
 %% --------------------------------------------------------------------
+
 status_clusters()->
     {ok,ClusterId}=application:get_env(cluster_id),
-    R=case db_cluster_info:read(atom_to_list(ClusterId)) of
+    status_clusters(atom_to_list(ClusterId)).
+status_clusters(ClusterId)->
+    R=case db_cluster_info:read(ClusterId) of
 	  []->
 	      ?PrintLog(alert,"ClusterID eexists",[ClusterId,?FUNCTION_NAME,?MODULE,?LINE]),
 	      {error,["ClusterID eexists"]};
@@ -66,7 +70,7 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
 		false==lists:member(XAlias,ControllerAlias)],
     AllAlias=lists:append(ControllerAlias,H1),
     AllHostInfo=[db_host_info:read(Alias)||Alias<-AllAlias],
-    NodesToCheck=[?KubeletNode(ClusterId,Alias,HostId)||[{Alias,HostId,_Ip,_SshPort,_UId,_Pwd}]<-AllHostInfo],
+    NodesToCheck=[{Alias,?KubeletNode(ClusterId,Alias,HostId)}||[{Alias,HostId,_Ip,_SshPort,_UId,_Pwd}]<-AllHostInfo],
 %    erlang:set_cookie(node(),list_to_atom(Cookie)),   
    {R1,M1}=do_ping(NodesToCheck,ClusterId,[],[]),
     case M1 of
@@ -81,13 +85,13 @@ check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
 
 do_ping([],_ClusterId,Running,Missing)->
     {Running,Missing};
-do_ping([Node|T],ClusterId,Running,Missing)->
+do_ping([{Alias,Node}|T],ClusterId,Running,Missing)->
     case net_adm:ping(Node) of
 	pong->
-	    NewRunning=[Node|Running],
+	    NewRunning=[{Alias,Node}|Running],
 	    NewMissing=Missing;
 	pang ->
-	    NewMissing=[Node|Missing],
+	    NewMissing=[{Alias,Node}|Missing],
 	    NewRunning=Running
     end,    
     do_ping(T,ClusterId,NewRunning,NewMissing).
@@ -211,7 +215,7 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
 		    ?PrintLog(log,"init stop ",[NodeStop,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 %		    ?PrintLog(debug,"Cookie ",[Cookie,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 		 %   ?PrintLog(debug,"Node Cookie ",[rpc:call(node(),erlang,get_cookie,[]),node(),?FUNCTION_NAME,?MODULE,?LINE]),
-		    ErlCmd="erl -noshell -noinput "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
+		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
 		    SshCmd="nohup "++ErlCmd++" &",
 		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,SshCmd,2*5000],3*5000),
 		    ?PrintLog(log,"ssh ",[ErlcCmdResult,SshCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
@@ -244,9 +248,14 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
  %   ?PrintLog(debug,"Cookie after created ",[rpc:call(Node,erlang,get_cookie,[]),Node,?FUNCTION_NAME,?MODULE,?LINE]),
     NewAcc=case Result of
 	       ok->
+		   % Error fix 
+		 %  erlang:set_cookie(node(),abc),
+		  % timer:sleep(1000),
 		   case node_started(Node) of
 		       true->
-			   % laod_start kubelet
+			 %  ?PrintLog(debug,"disable kubelet start",[Alias,Node,Ip,SshPort]),
+			 %  glurk;
+						% laod_start kubelet
 			   [PodSpec]=db_pod_spec:read("kubelet"),
 			   {ok,MonitorNode}=application:get_env(monitor_node),
 			   case pod:load_start(Node,ClusterId,MonitorNode,PodSpec) of
@@ -258,9 +267,10 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 				   ?PrintLog(ticket,"Failed to start kubelet",[ErrStartKubelet,Alias,Node,Ip,SshPort]),
 				   [{error,[kubelet_not_started,Node,Alias,Ip,SshPort,ErrStartKubelet,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 			   end;
+		
 		       false->
 			   ?PrintLog(ticket,"Failed to connect to node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
-			   [{error,[host_not_started,Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
+			   [{error,["Failed to connect to node",Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
 	        Err->
 		   ?PrintLog(ticket,"error",[Err,Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
@@ -281,10 +291,10 @@ check_started(N,Vm,SleepTime,_Result)->
 		  pong->
 		     true;
 		  pang->
-		      timer:sleep(SleepTime),
-		      false;
-		  {badrpc,_}->
 		       timer:sleep(SleepTime),
-		      false
+		       false;
+		   {badrpc,_}->
+		       timer:sleep(SleepTime),
+		       false
 	      end,
     check_started(N-1,Vm,SleepTime,NewResult).
