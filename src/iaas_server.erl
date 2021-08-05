@@ -276,15 +276,21 @@ check_status_hosts()->
     rpc:cast(node(),iaas,status_hosts,[Status]).
 
 cl_strive_desired_state()->
-    rpc:call(node(),cluster,strive_desired_state,[],90*1000),
+    {ok,ClusterIdAtom}=application:get_env(cluster_id),
+    ClusterId=atom_to_list(ClusterIdAtom),
+    rpc:call(node(),cluster,strive_desired_state,[ClusterId],90*1000),
+
     ClusterStatus=rpc:call(node(),cluster,status_clusters,[],60*1000),
     {{running,RunningClusters},{missing,MissingClusters}}=ClusterStatus,
-    PrintRunningClusters=[ClusterId||{ClusterId,_}<-RunningClusters],
-    ?PrintLog(log,"Running Clusters ",[PrintRunningClusters]),
-    PrintMissingClusters=[ClusterId||{ClusterId,_}<-MissingClusters],
-    ?PrintLog(ticket,"Missing Clusters ",[PrintMissingClusters]),
-    
-    %?PrintLog(log,"Cluster status",[ClusterStatus]),
+    case MissingClusters of
+	[]->
+	    ok;
+	_->
+	    PrintRunningClusters=[ClusterId||{ClusterId,_}<-RunningClusters],
+	    ?PrintLog(log,"Running Clusters ",[PrintRunningClusters]),
+	    PrintMissingClusters=[ClusterId||{ClusterId,_}<-MissingClusters],
+	    ?PrintLog(ticket,"Missing Clusters ",[PrintMissingClusters])
+    end,
     rpc:cast(node(),iaas,cluster_strive_desired_state,[ClusterStatus]).
 
 %% --------------------------------------------------------------------

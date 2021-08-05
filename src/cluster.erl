@@ -21,6 +21,8 @@
 %% --------------------------------------------------------------------
 -export([
        	 strive_desired_state/0,
+       	 strive_desired_state/1,
+
 	 status_clusters/0,
 	 status_clusters/1,
 	 create/1,
@@ -37,6 +39,12 @@
 %% Description: Initiate the eunit tests, set upp needed processes etc
 %% Returns: non
 %% --------------------------------------------------------------------
+strive_desired_state(ClusterId)->
+   %   io:format("~p~n",[{?FUNCTION_NAME,?MODULE,?LINE}]),
+    {{running,_R},{missing,M}}=cluster:status_clusters(ClusterId),
+    [{cluster:create(ClusterId),ClusterId}||{ClusterId,_}<-M].
+
+
 strive_desired_state()->
    %   io:format("~p~n",[{?FUNCTION_NAME,?MODULE,?LINE}]),
     {{running,_R},{missing,M}}=cluster:status_clusters(),
