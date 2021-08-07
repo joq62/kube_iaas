@@ -62,7 +62,9 @@
 
 init([]) ->
     ?PrintLog(log,"Start init",[?MODULE]),
-    ssh:start(),
+    % Loads dbase host and cluster info
+    ?PrintLog(log,"1/8 load cluster and hosts and deployment info",[?FUNCTION_NAME,?MODULE,?LINE]),
+    ?PrintLog(log,"2/8 Starts ssh ",[ssh:start(),?FUNCTION_NAME,?MODULE,?LINE]),
     case rpc:call(node(),host,status_all_hosts,[],10*1000) of
 	{ok,RH,NAH}->
 	    RunningHosts=RH,
@@ -71,8 +73,8 @@ init([]) ->
 	    RunningHosts=[],
 	    MissingHosts=[]
     end,
-    ?PrintLog(log,"Running Hosts ",[RunningHosts]),
-    ?PrintLog(log,"Missing Hosts ",[MissingHosts]),
+    ?PrintLog(log,"3/8 Running Hosts ",[RunningHosts,?FUNCTION_NAME,?MODULE,?LINE]),
+    ?PrintLog(log,"4/8 Missing Hosts ",[MissingHosts,?FUNCTION_NAME,?MODULE,?LINE]),
     rpc:call(node(),cluster,strive_desired_state,[],50*1000),
     ClusterStatus=rpc:call(node(),cluster,status_clusters,[],50*1000),
     case ClusterStatus of
@@ -82,13 +84,13 @@ init([]) ->
 	    RunningClusters=[],
 	    MissingClusters=[]
     end,
-    ?PrintLog(log,"Running Clusters ",[RunningClusters]),
-    ?PrintLog(log,"Missing Clusters ",[MissingClusters]),
+    ?PrintLog(log,"5/8 Running Clusters ",[RunningClusters,?FUNCTION_NAME,?MODULE,?LINE]),
+    ?PrintLog(log,"6/8 Missing Clusters ",[MissingClusters,?FUNCTION_NAME,?MODULE,?LINE]),
 
-%    spawn(fun()->cl_strive_desired_state() end),    
+   ?PrintLog(log,"7/8 Start cluster_status_interval() ",[?FUNCTION_NAME,?MODULE,?LINE]),   
     spawn(fun()->cluster_status_interval() end),    
 
-    ?PrintLog(log,"Successful starting of server",[?MODULE]),
+    ?PrintLog(log,"8/8 Successful starting of server",[?MODULE]),
     {ok, #state{running_hosts=RunningHosts,
 		missing_hosts=MissingHosts,
 		running_clusters=RunningClusters,

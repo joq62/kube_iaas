@@ -223,7 +223,8 @@ start_node([{Alias,HostId,Ip,SshPort,UId,Pwd},NodeName,ClusterId,Cookie])->
 		    ?PrintLog(log,"init stop ",[NodeStop,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 %		    ?PrintLog(debug,"Cookie ",[Cookie,Node,?FUNCTION_NAME,?MODULE,?LINE]),
 		 %   ?PrintLog(debug,"Node Cookie ",[rpc:call(node(),erlang,get_cookie,[]),node(),?FUNCTION_NAME,?MODULE,?LINE]),
-		    ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
+		    %ErlCmd="erl -detached "++"-sname "++UniqueNodeName++" "++"-setcookie "++Cookie,
+		    ErlCmd="erl_call -s "++"-sname "++UniqueNodeName++" "++"-c "++Cookie,
 		    SshCmd="nohup "++ErlCmd++" &",
 		    ErlcCmdResult=rpc:call(node(),my_ssh,ssh_send,[Ip,SshPort,UId,Pwd,SshCmd,2*5000],3*5000),
 		    ?PrintLog(log,"ssh ",[ErlcCmdResult,SshCmd,Node,?FUNCTION_NAME,?MODULE,?LINE]),
@@ -264,23 +265,18 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 			 %  ?PrintLog(debug,"disable kubelet start",[Alias,Node,Ip,SshPort]),
 			 %  glurk;
 						% laod_start kubelet
-			   [PodSpec]=db_pod_spec:read("kubelet"),
-			   {ok,MonitorNode}=application:get_env(monitor_node),
-			   case pod:load_start(Node,ClusterId,MonitorNode,PodSpec) of
-			       ok->
+			 %  [PodSpec]=db_pod_spec:read("kubelet"),
+			 %  {ok,MonitorNode}=application:get_env(monitor_node),
+			 %  case pod:load_start(Node,ClusterId,MonitorNode,PodSpec) of
+			 %      ok->
 %				   ?PrintLog(debug,"Cookie after kubelte ",[rpc:call(Node,erlang,get_cookie,[]),Node,?FUNCTION_NAME,?MODULE,?LINE]),
-				   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
-				   [{ok,Node,Alias,Ip,SshPort}|Acc];
-			       ErrStartKubelet->
-				   ?PrintLog(ticket,"Failed to start kubelet",[ErrStartKubelet,Alias,Node,Ip,SshPort]),
-				   [{error,[kubelet_not_started,Node,Alias,Ip,SshPort,ErrStartKubelet,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
-			   end;
-		
+			%	   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
+			   [{ok,Node,Alias,Ip,SshPort}|Acc];
 		       false->
 			   ?PrintLog(ticket,"Failed to connect to node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 			   [{error,["Failed to connect to node",Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
-	        Err->
+	       Err->
 		   ?PrintLog(ticket,"error",[Err,Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
 		   [{Result,Node,Alias,Ip,SshPort}|Acc]
 	   end,
