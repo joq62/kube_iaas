@@ -288,9 +288,9 @@ cl_strive_desired_state()->
 	[]->
 	    ok;
 	_->
-	    PrintRunningClusters=[ClusterId||{ClusterId,_}<-RunningClusters],
+	    PrintRunningClusters=[XClusterId||{XClusterId,_}<-RunningClusters],
 	    ?PrintLog(log,"Running Clusters ",[PrintRunningClusters]),
-	    PrintMissingClusters=[ClusterId||{ClusterId,_}<-MissingClusters],
+	    PrintMissingClusters=[XClusterId||{XClusterId,_}<-MissingClusters],
 	    ?PrintLog(ticket,"Missing Clusters ",[PrintMissingClusters])
     end,
     rpc:cast(node(),iaas,cluster_strive_desired_state,[ClusterStatus]).

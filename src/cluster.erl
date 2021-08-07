@@ -42,7 +42,7 @@
 strive_desired_state(ClusterId)->
    %   io:format("~p~n",[{?FUNCTION_NAME,?MODULE,?LINE}]),
     {{running,_R},{missing,M}}=cluster:status_clusters(ClusterId),
-    [{cluster:create(ClusterId),ClusterId}||{ClusterId,_}<-M].
+    [{cluster:create(XClusterId),XClusterId}||{XClusterId,_}<-M].
 
 
 strive_desired_state()->
@@ -73,7 +73,7 @@ status_clusters(ClusterId)->
 check([],Running,Missing)->
     {{running,Running},{missing,Missing}};
 
-check([{ClusterId,ControllerAlias,_,WorkerAlias,Cookie,_}|T],Running,Missing) ->
+check([{ClusterId,ControllerAlias,_,WorkerAlias,_Cookie,_}|T],Running,Missing) ->
     H1=[XAlias||XAlias<-WorkerAlias,
 		false==lists:member(XAlias,ControllerAlias)],
     AllAlias=lists:append(ControllerAlias,H1),
@@ -113,7 +113,7 @@ delete(ClusterId)->
 	  []->
 	      {error,[eexists,ClusterId]};
 	  ClusterInfo->
-		[{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,Cookie,_ControllerNode}]=ClusterInfo,
+		[{ClusterId,ControllerAlias,_NumWorkers,WorkerAlias,_Cookie,_ControllerNode}]=ClusterInfo,
 	%	erlang:set_cookie(node(),list_to_atom(Cookie)),
 	%	?PrintLog(debug,"set_cookie",[Cookie,?FUNCTION_NAME,?MODULE,?LINE]),
 		 H1=[XAlias||XAlias<-WorkerAlias,
@@ -249,7 +249,7 @@ check_node([{{badrpc,timeout},Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
     ?PrintLog(ticket,"Failed to start node",[Node,Alias,{badrpc,timeout},?FUNCTION_NAME,?MODULE,?LINE]),
     check_node(T,[{error,[{badrpc,timeout},Node,ClusterId,Alias,Ip,SshPort]}|Acc]); 
 check_node([{{error,Reason},Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
-     ?PrintLog(ticket,"Failed to start node",[Node,Alias,{error,Reason},?FUNCTION_NAME,?MODULE,?LINE]),
+     ?PrintLog(ticket,"Failed to start node",[Node,Alias,ClusterId,{error,Reason},?FUNCTION_NAME,?MODULE,?LINE]),
      check_node(T,[{error,[Reason,Node,Alias,Ip,SshPort]}|Acc]);
   
 check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
@@ -271,14 +271,14 @@ check_node([{Result,Node,ClusterId,Alias,Ip,SshPort}|T],Acc)->
 			 %      ok->
 %				   ?PrintLog(debug,"Cookie after kubelte ",[rpc:call(Node,erlang,get_cookie,[]),Node,?FUNCTION_NAME,?MODULE,?LINE]),
 			%	   ?PrintLog(log,"Started succesful",[Alias,Node,Ip,SshPort]),
-			   [{ok,Node,Alias,Ip,SshPort}|Acc];
+			   [{ok,Node,Alias,ClusterId,Ip,SshPort}|Acc];
 		       false->
 			   ?PrintLog(ticket,"Failed to connect to node",[Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
-			   [{error,["Failed to connect to node",Node,Alias,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
+			   [{error,["Failed to connect to node",Node,Alias,ClusterId,Ip,SshPort,?MODULE,?FUNCTION_NAME,?LINE]}|Acc]
 		   end;
 	       Err->
 		   ?PrintLog(ticket,"error",[Err,Node,Alias,?FUNCTION_NAME,?MODULE,?LINE]),
-		   [{Result,Node,Alias,Ip,SshPort}|Acc]
+		   [{Result,Node,Alias,ClusterId,Ip,SshPort}|Acc]
 	   end,
     check_node(T,NewAcc).
 node_started(Node)->
